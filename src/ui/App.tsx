@@ -343,6 +343,7 @@ function DebugPanel({ onReset }: { onReset: () => void }) {
       <div class="muted small">
         {t('debugTime', { t: `${Math.round(off / 60_000)} min` })} · {backend.mode} · {state.code}
       </div>
+      {backend.mode === 'local' && (
       <div class="chips">
         {[
           ['+1h', H],
@@ -370,6 +371,7 @@ function DebugPanel({ onReset }: { onReset: () => void }) {
           {t('debugResetTime')}
         </button>
       </div>
+      )}
       <div class="chips">
         <button class="chip" onClick={() => send({ type: 'debugRefill' })}>
           {t('debugRefill')}

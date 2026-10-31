@@ -81,6 +81,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   }, [cup]);
 
   function addComponent(c: ComponentId) {
+    if (finished.current) return;
     const st = COMPONENT_STOCK[c];
     if (st && (cupUsage[st] ?? 0) + 1 > stock[st]) {
       tg.haptic('error');
@@ -98,7 +99,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   }
 
   function serve() {
-    if (!target || !cup.length) return;
+    if (finished.current || !target || !cup.length) return;
     const { g, i } = target;
     const ok = matchesRecipe(cup, g.order);
     const waitMs = Math.max(0, elapsed - g.arriveMs);
