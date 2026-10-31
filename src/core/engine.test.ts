@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, DRINKS } from './content';
-import { apply, createCafe, digestFor, energyNow, getPlayer, matchesRecipe, NPC_ID, rating, weekId } from './engine';
-import type { CafeState, Command, GuestResult } from './types';
+import { CONFIG, DRINKS } from './content.ts';
+import { apply, createCafe, digestFor, energyNow, getPlayer, matchesRecipe, NPC_ID, rating, weekId } from './engine.ts';
+import type { CafeState, Command, GuestResult } from './types.ts';
 
 const T0 = Date.UTC(2026, 10, 2, 9, 0, 0); // понедельник
 const H = 3600_000;

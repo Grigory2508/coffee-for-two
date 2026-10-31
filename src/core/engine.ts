@@ -12,8 +12,8 @@ import {
   type DrinkId,
   type RegularId,
   type StockId,
-} from './content';
-import { hashString, mulberry32, pick } from './rng';
+} from './content.ts';
+import { hashString, mulberry32, pick } from './rng.ts';
 import {
   GameError,
   type CafeState,
@@ -26,7 +26,7 @@ import {
   type PlayerId,
   type ShiftGuest,
   type ShiftPlan,
-} from './types';
+} from './types.ts';
 
 export const NPC_ID = 'npc';
 const HOUR = 3600_000;

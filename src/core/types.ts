@@ -1,4 +1,4 @@
-import type { DecorSlot, DrinkId, RegularId, StockId, UpgradeId } from './content';
+import type { DecorSlot, DrinkId, RegularId, StockId, UpgradeId } from './content.ts';
 
 export type PlayerId = string;
 

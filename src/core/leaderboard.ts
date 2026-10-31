@@ -1,6 +1,6 @@
-import { FAKE_CAFES } from './content';
-import { hashString, mulberry32 } from './rng';
-import type { CafeState } from './types';
+import { FAKE_CAFES } from './content.ts';
+import { hashString, mulberry32 } from './rng.ts';
+import type { CafeState } from './types.ts';
 
 export interface LeaderRow {
   name: string;
