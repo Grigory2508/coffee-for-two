@@ -656,11 +656,12 @@ main {
 }
 
 .popup.good {
-  color: #fff;
+  color: var(--mint);
+  text-shadow: 0 1px 0 #fff;
 }
 
 .popup.bad {
-  color: #ffd2cc;
+  color: var(--danger);
 }
 
 @keyframes float {

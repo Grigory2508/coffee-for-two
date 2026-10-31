@@ -18,12 +18,12 @@ export function CafeScene({ cat, busy }: { cat: boolean; busy: boolean }) {
       <rect x="22" y="48" width="110" height="74" rx="6" fill="#bfe0ea" stroke="#6b4226" stroke-width="4" />
       <line x1="77" y1="48" x2="77" y2="122" stroke="#6b4226" stroke-width="3" />
       <circle cx="48" cy="72" r="10" fill="#fff8" />
-      <rect x="172" y="44" width="150" height="44" rx="6" fill="#2e2420" />
-      <text x="247" y="63" fill="#f6efe6" font-size="11" text-anchor="middle" font-family="inherit">ESPRESSO · LATTE</text>
-      <text x="247" y="78" fill="#c8873a" font-size="10" text-anchor="middle" font-family="inherit">CAPPUCCINO · RAF</text>
+      <rect x="222" y="40" width="124" height="44" rx="6" fill="#2e2420" />
+      <text x="284" y="59" fill="#f6efe6" font-size="11" text-anchor="middle" font-family="inherit">ESPRESSO · LATTE</text>
+      <text x="284" y="74" fill="#c8873a" font-size="10" text-anchor="middle" font-family="inherit">CAPPUCCINO · RAF</text>
       <rect x="0" y="128" width="360" height="62" fill="#8a5a3b" />
       <rect x="0" y="122" width="360" height="10" fill="#6b4226" />
-      <g transform="translate(196 92)">
+      <g transform="translate(150 92)">
         <rect width="62" height="36" rx="5" fill="#9aa5ad" />
         <rect x="8" y="6" width="46" height="10" rx="3" fill="#5f6b73" />
         <rect x="18" y="20" width="8" height="10" fill="#2e2420" />
@@ -40,7 +40,7 @@ export function CafeScene({ cat, busy }: { cat: boolean; busy: boolean }) {
         <rect x="18" width="14" height="20" rx="3" fill="#f6efe6" />
         <rect x="36" width="14" height="20" rx="3" fill="#e8a598" />
       </g>
-      <g transform="translate(142 100)">
+      <g transform="translate(112 100)">
         <ellipse cx="14" cy="22" rx="14" ry="4" fill="#0002" />
         <rect x="4" y="2" width="20" height="20" rx="4" fill="#5f8f7a" />
         <path d="M14 2 q-12 -14 -6 -24 M14 2 q10 -16 4 -26 M14 2 q2 -16 14 -20" stroke="#3f6b58" stroke-width="4" fill="none" />
