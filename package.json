@@ -1,0 +1,24 @@
+{
+  "name": "coffee-for-two",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Кооп-кофейня на двоих — прототип MVP для Telegram Mini App",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "sync-server": "node scripts/sync-server.mjs"
+  },
+  "dependencies": {
+    "preact": "^11.1.1"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}
