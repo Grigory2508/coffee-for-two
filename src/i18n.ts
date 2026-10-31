@@ -1,0 +1,383 @@
+import type { L10n } from './core/content';
+
+export type Lang = 'ru' | 'en';
+
+const ru = {
+  loading: 'Варим кофе…',
+  appTitle: 'Кофейня на двоих',
+  // онбординг
+  welcomeTitle: 'Откройте кофейню вдвоём',
+  welcomeText: 'По 5 минут в день: один за стойкой, другой за закупками — или наоборот. На выручку обустроите квартиру над кофейней и заведёте кота.',
+  cafeNameLabel: 'Как назовём кофейню?',
+  cafeNameDefault: 'Наше место',
+  openCafe: 'Открыть кофейню',
+  inviteTitle: 'Тебя зовут в кофейню',
+  inviteText: '{name} уже открыл(а) кофейню «{cafe}» и ждёт напарника.',
+  inviteJoin: 'Войти в кофейню',
+  inviteNotFound: 'Кофейня не найдена. В прототипе без сервера приглашение работает только в этом же браузере — открой его во второй вкладке.',
+  inviteFull: 'В этой кофейне уже двое. Можно открыть свою.',
+  openOwn: 'Открыть свою',
+  // главная
+  tabCafe: 'Кофейня',
+  tabManage: 'Склад',
+  tabHome: 'Квартира',
+  tabBoard: 'Мы',
+  tabTop: 'Рейтинг',
+  partner: 'Напарник',
+  npcPartner: '{name} подменяет напарника',
+  npcHint: 'Пока ты один, сосед иногда выходит на смену — но работает так себе. Позови настоящего напарника!',
+  invitePartner: 'Позвать напарника',
+  inviteShareText: 'Давай откроем кофейню вдвоём ☕ По 5 минут в день, прямо в Telegram.',
+  inviteCopied: 'Ссылка скопирована — отправь её напарнику',
+  energy: 'Силы',
+  energyFull: 'полные',
+  energyNext: '+1 через {t}',
+  startShift: 'Встать за стойку',
+  continueShift: 'Вернуться за стойку',
+  noEnergy: 'Силы кончились — восстановятся через {t}. А пока можно заняться складом.',
+  goalsTitle: 'Цель: квартира над кофейней',
+  goalStars: 'Рейтинг {v} из {need}★',
+  goalShifts: 'Смен {v} из {need}',
+  roomOpen: 'Квартира открыта! Загляни во вкладку «Квартира».',
+  whileAway: 'Пока тебя не было',
+  nothingNew: 'Новостей нет — ты всё видел(а).',
+  gotIt: 'Понятно',
+  stockShort: 'На складе',
+  ratingNew: 'новая',
+  catInCafe: '{name} в кофейне: +10% чаевых',
+  money: 'монет',
+  // смена
+  shiftTitle: 'Смена',
+  shiftHint: 'Собери заказ из ингредиентов и нажми «Подать». Порядок не важен.',
+  serve: 'Подать',
+  pour: 'Вылить',
+  cupEmpty: 'Чашка пустая',
+  nextGuest: 'Следующий гость скоро',
+  hints: 'Подсказки',
+  endShift: 'Закрыть смену',
+  outOf: 'нет',
+  regularStar: 'постоянный гость',
+  // итог смены
+  shiftDone: 'Смена закрыта',
+  earned: 'Заработано',
+  tips: 'из них чаевые',
+  served: 'Обслужено',
+  wrong: 'Ошибки',
+  left: 'Ушли',
+  noStockWarn: '{n} гостей ушли, потому что кончились продукты. Загляни на склад.',
+  storiesTitle: 'Гости рассказали',
+  storyPartnerHint: 'Остальное слышал(а) напарник — спроси!',
+  tellPartner: 'Рассказать напарнику',
+  tellPartnerText: 'Смена закрыта: +{earned} 🪙, гостей {served} из {total}. Твоя очередь! ☕',
+  back: 'Назад',
+  // склад
+  stockTitle: 'Склад',
+  buy: 'Купить',
+  capacity: 'до {cap}',
+  menuTitle: 'Меню',
+  inMenu: 'в меню',
+  unlock: 'Добавить',
+  upgradesTitle: 'Улучшения',
+  owned: 'есть',
+  discount: 'скидка управляющего {p}%',
+  recipe: 'Рецепт',
+  // квартира
+  roomLocked: 'Квартира над кофейней пока закрыта',
+  roomLockedText: 'Доведите кофейню до {stars}★ и отработайте {shifts} смен — и хозяин сдаст вам квартиру наверху.',
+  roomTitle: 'Квартира над кофейней',
+  decorTitle: 'Обстановка',
+  place: 'Поставить',
+  remove: 'Убрать',
+  placed: 'стоит',
+  catTitle: 'Кот',
+  catFound: 'У двери кофейни мяукает котёнок. Возьмёте?',
+  catNamePlaceholder: 'Имя кота',
+  catAdopt: 'Взять домой',
+  feed: 'Покормить',
+  pet: 'Погладить',
+  hunger: 'Сытость',
+  mood: 'Настроение',
+  catFood: 'корма: {n}',
+  petCooldown: 'Кот пока не хочет — через {t}',
+  // доска
+  boardTitle: 'Доска записок',
+  notePlaceholder: 'Записка напарнику…',
+  send: 'Оставить',
+  boardEmpty: 'Здесь вы оставляете друг другу записки.',
+  askPartner: 'Попросить напарника',
+  askStock: 'Закончились продукты — закупишь? 📦',
+  askShift: 'Я отработал(а) — твоя смена! ☕',
+  askCat: 'Покорми кота, пожалуйста 🐈',
+  storiesAll: 'Истории постоянных гостей',
+  storyLocked: 'ещё не рассказано',
+  storySeenByPartner: 'это слышал(а) {name}',
+  logTitle: 'Что происходило',
+  // рейтинг
+  topTitle: 'Рейтинг кофеен недели',
+  topText: 'Очки за довольных гостей. Когда оба напарника выходят на смену в один день — очки ×1.2.',
+  you: 'вы',
+  points: 'очк.',
+  // разрешение
+  writeTitle: 'Разреши кофейне писать тебе',
+  writeText: 'Бот будет присылать короткие сводки: что сделал напарник, когда проголодался кот. Не чаще 1–2 раз в день.',
+  writeAllow: 'Разрешить',
+  writeLater: 'Позже',
+  // ошибки
+  err_no_energy: 'Нет сил на смену',
+  err_no_money: 'Не хватает денег ({cost} 🪙)',
+  err_capacity: 'Склад полон (максимум {cap})',
+  err_owned: 'Уже есть',
+  err_room_locked: 'Квартира ещё закрыта',
+  err_no_food: 'Нет корма — купи на складе',
+  err_cooldown: 'Чуть позже',
+  err_cafe_full: 'В кофейне уже двое',
+  err_cafe_not_found: 'Кофейня не найдена',
+  err_bad_name: 'Нужно имя',
+  err_empty_note: 'Записка пустая',
+  err_network: 'Нет связи с сервером',
+  err_unknown: 'Что-то пошло не так',
+  // журнал
+  log_cafe_opened: '{who} открыл(а) кофейню',
+  log_partner_joined: '{who} теперь в кофейне!',
+  log_shift_done: '{who} отработал(а) смену: +{earned} 🪙, гостей {served}/{total}',
+  log_npc_shift: '{who} подменил(а) на смене: +{earned} 🪙',
+  log_stock_bought: '{who} закупил(а): {item} +{amount}',
+  log_upgrade_bought: '{who} купил(а) улучшение: {item}',
+  log_drink_unlocked: '{who} добавил(а) в меню: {item}',
+  log_decor_bought: '{who} купил(а) в квартиру: {item}',
+  log_decor_placed: '{who} переставил(а): {item}',
+  log_room_unlocked: 'Хозяин сдал вам квартиру над кофейней! 🏠',
+  log_cat_adopted: '{who} взял(а) котёнка: {name} 🐈',
+  log_cat_fed: '{who} покормил(а) {name}',
+  log_cat_petted: '{who} погладил(а) {name}',
+  log_note: '{who}: {sticker} {text}',
+  log_regular_story: '{who} поболтал(а) с гостем: {item}',
+  log_stock_low: 'Продукты на исходе: зёрен {beans}, молока {milk}',
+  log_cat_hungry: '{name} проголодался и сидит у миски',
+  log_renamed: '{who} переименовал(а) кофейню в «{name}»',
+  someone: 'Кто-то',
+  // отладка
+  debug: 'Отладка',
+  debugSkip: 'Промотать',
+  debugRefill: 'Силы и +1000 🪙',
+  debugPartner: 'Открыть вкладку напарника',
+  debugReset: 'Сбросить всё',
+  debugResetConfirm: 'Удалить кофейню и начать заново?',
+  debugLang: 'Язык',
+  debugTime: 'Смещение времени: {t}',
+  debugResetTime: 'Сбросить время',
+  minutes: '{n} мин',
+  hours: '{n} ч',
+  hm: '{h} ч {m} мин',
+};
+
+type Dict = typeof ru;
+
+const en: Dict = {
+  loading: 'Brewing coffee…',
+  appTitle: 'Coffee for Two',
+  welcomeTitle: 'Open a café together',
+  welcomeText: '5 minutes a day: one of you behind the counter, the other on supplies — or switch. Spend the earnings on the flat above the café and adopt a cat.',
+  cafeNameLabel: 'Name your café',
+  cafeNameDefault: 'Our Place',
+  openCafe: 'Open the café',
+  inviteTitle: 'You are invited to a café',
+  inviteText: '{name} has opened “{cafe}” and is waiting for a partner.',
+  inviteJoin: 'Join the café',
+  inviteNotFound: 'Café not found. Without a server the prototype invite only works in this same browser — open it in a second tab.',
+  inviteFull: 'This café already has two owners. You can open your own.',
+  openOwn: 'Open my own',
+  tabCafe: 'Café',
+  tabManage: 'Supplies',
+  tabHome: 'Flat',
+  tabBoard: 'Us',
+  tabTop: 'Ranking',
+  partner: 'Partner',
+  npcPartner: '{name} is covering for your partner',
+  npcHint: 'While you are alone, a neighbour takes a shift now and then — not very well. Invite a real partner!',
+  invitePartner: 'Invite a partner',
+  inviteShareText: 'Let’s open a café together ☕ 5 minutes a day, right in Telegram.',
+  inviteCopied: 'Link copied — send it to your partner',
+  energy: 'Energy',
+  energyFull: 'full',
+  energyNext: '+1 in {t}',
+  startShift: 'Take a shift',
+  continueShift: 'Back to the counter',
+  noEnergy: 'Out of energy — back in {t}. Meanwhile, check the supplies.',
+  goalsTitle: 'Goal: the flat above the café',
+  goalStars: 'Rating {v} of {need}★',
+  goalShifts: 'Shifts {v} of {need}',
+  roomOpen: 'The flat is yours! Open the “Flat” tab.',
+  whileAway: 'While you were away',
+  nothingNew: 'Nothing new — you are up to date.',
+  gotIt: 'Got it',
+  stockShort: 'In stock',
+  ratingNew: 'new',
+  catInCafe: '{name} is in the café: +10% tips',
+  money: 'coins',
+  shiftTitle: 'Shift',
+  shiftHint: 'Build the order from ingredients and tap “Serve”. Order doesn’t matter.',
+  serve: 'Serve',
+  pour: 'Pour out',
+  cupEmpty: 'Cup is empty',
+  nextGuest: 'Next guest soon',
+  hints: 'Hints',
+  endShift: 'Close shift',
+  outOf: 'out',
+  regularStar: 'regular',
+  shiftDone: 'Shift closed',
+  earned: 'Earned',
+  tips: 'incl. tips',
+  served: 'Served',
+  wrong: 'Mistakes',
+  left: 'Left',
+  noStockWarn: '{n} guests left because you ran out of supplies. Check the stock.',
+  storiesTitle: 'Guests told you',
+  storyPartnerHint: 'Your partner heard the rest — ask them!',
+  tellPartner: 'Tell my partner',
+  tellPartnerText: 'Shift closed: +{earned} 🪙, guests {served} of {total}. Your turn! ☕',
+  back: 'Back',
+  stockTitle: 'Stock',
+  buy: 'Buy',
+  capacity: 'max {cap}',
+  menuTitle: 'Menu',
+  inMenu: 'on menu',
+  unlock: 'Add',
+  upgradesTitle: 'Upgrades',
+  owned: 'owned',
+  discount: 'manager discount {p}%',
+  recipe: 'Recipe',
+  roomLocked: 'The flat above the café is still locked',
+  roomLockedText: 'Reach {stars}★ and work {shifts} shifts — then the landlord will rent you the flat upstairs.',
+  roomTitle: 'The flat above the café',
+  decorTitle: 'Furniture',
+  place: 'Place',
+  remove: 'Remove',
+  placed: 'placed',
+  catTitle: 'Cat',
+  catFound: 'A kitten is meowing at the café door. Take it home?',
+  catNamePlaceholder: 'Cat’s name',
+  catAdopt: 'Take home',
+  feed: 'Feed',
+  pet: 'Pet',
+  hunger: 'Fed',
+  mood: 'Mood',
+  catFood: 'food: {n}',
+  petCooldown: 'Not now — in {t}',
+  boardTitle: 'Notes board',
+  notePlaceholder: 'Note for your partner…',
+  send: 'Post',
+  boardEmpty: 'Leave each other notes here.',
+  askPartner: 'Ask your partner',
+  askStock: 'We’re out of supplies — can you restock? 📦',
+  askShift: 'Done with my shift — your turn! ☕',
+  askCat: 'Please feed the cat 🐈',
+  storiesAll: 'Regulars’ stories',
+  storyLocked: 'not told yet',
+  storySeenByPartner: '{name} heard this one',
+  logTitle: 'What happened',
+  topTitle: 'Weekly café ranking',
+  topText: 'Points for happy guests. When both partners work a shift on the same day — points ×1.2.',
+  you: 'you',
+  points: 'pts',
+  writeTitle: 'Let the café message you',
+  writeText: 'The bot will send short digests: what your partner did, when the cat is hungry. At most 1–2 a day.',
+  writeAllow: 'Allow',
+  writeLater: 'Later',
+  err_no_energy: 'No energy for a shift',
+  err_no_money: 'Not enough coins ({cost} 🪙)',
+  err_capacity: 'Stock is full (max {cap})',
+  err_owned: 'Already owned',
+  err_room_locked: 'The flat is still locked',
+  err_no_food: 'No cat food — buy some in Supplies',
+  err_cooldown: 'A bit later',
+  err_cafe_full: 'This café already has two owners',
+  err_cafe_not_found: 'Café not found',
+  err_bad_name: 'A name is required',
+  err_empty_note: 'The note is empty',
+  err_network: 'No connection to the server',
+  err_unknown: 'Something went wrong',
+  log_cafe_opened: '{who} opened the café',
+  log_partner_joined: '{who} joined the café!',
+  log_shift_done: '{who} worked a shift: +{earned} 🪙, guests {served}/{total}',
+  log_npc_shift: '{who} covered a shift: +{earned} 🪙',
+  log_stock_bought: '{who} restocked: {item} +{amount}',
+  log_upgrade_bought: '{who} bought an upgrade: {item}',
+  log_drink_unlocked: '{who} added to the menu: {item}',
+  log_decor_bought: '{who} bought for the flat: {item}',
+  log_decor_placed: '{who} rearranged: {item}',
+  log_room_unlocked: 'The landlord rented you the flat above the café! 🏠',
+  log_cat_adopted: '{who} adopted a kitten: {name} 🐈',
+  log_cat_fed: '{who} fed {name}',
+  log_cat_petted: '{who} petted {name}',
+  log_note: '{who}: {sticker} {text}',
+  log_regular_story: '{who} chatted with a regular: {item}',
+  log_stock_low: 'Supplies running low: beans {beans}, milk {milk}',
+  log_cat_hungry: '{name} is hungry and sitting by the bowl',
+  log_renamed: '{who} renamed the café to “{name}”',
+  someone: 'Someone',
+  debug: 'Debug',
+  debugSkip: 'Skip ahead',
+  debugRefill: 'Energy and +1000 🪙',
+  debugPartner: 'Open partner tab',
+  debugReset: 'Reset everything',
+  debugResetConfirm: 'Delete the café and start over?',
+  debugLang: 'Language',
+  debugTime: 'Time offset: {t}',
+  debugResetTime: 'Reset time',
+  minutes: '{n} min',
+  hours: '{n} h',
+  hm: '{h} h {m} min',
+};
+
+const DICTS: Record<Lang, Dict> = { ru, en };
+
+export type Key = keyof Dict;
+
+let current: Lang = 'ru';
+
+export function detectLang(code?: string): Lang {
+  try {
+    const saved = localStorage.getItem('cft:lang');
+    if (saved === 'ru' || saved === 'en') return saved;
+  } catch {
+    /* ignore */
+  }
+  const c = (code ?? '').toLowerCase();
+  // RU для русскоязычных и соседних аудиторий, остальным — EN
+  return /^(ru|uk|be|kk|hy|ka|uz|ky|az)/.test(c) ? 'ru' : c ? 'en' : 'ru';
+}
+
+export function setLang(l: Lang, persist = false) {
+  current = l;
+  document.documentElement.lang = l;
+  if (persist) {
+    try {
+      localStorage.setItem('cft:lang', l);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function lang(): Lang {
+  return current;
+}
+
+export function t(key: Key | string, params: Record<string, string | number> = {}): string {
+  const dict = DICTS[current] as Record<string, string>;
+  const raw = dict[key] ?? (ru as Record<string, string>)[key] ?? key;
+  return raw.replace(/\{(\w+)\}/g, (_, k) => (params[k] !== undefined ? String(params[k]) : `{${k}}`));
+}
+
+export function L(v: L10n): string {
+  return v[current];
+}
+
+export function fmtDuration(ms: number): string {
+  const totalMin = Math.max(1, Math.ceil(ms / 60_000));
+  if (totalMin < 60) return t('minutes', { n: totalMin });
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m ? t('hm', { h, m }) : t('hours', { n: h });
+}
