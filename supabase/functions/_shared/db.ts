@@ -1,12 +1,27 @@
 // Минимальный клиент PostgREST на fetch — без зависимостей.
 const URL_ = Deno.env.get('SUPABASE_URL')!;
-const KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-const headers = {
-  apikey: KEY,
-  Authorization: `Bearer ${KEY}`,
-  'Content-Type': 'application/json',
-};
+/**
+ * Новые проекты Supabase используют секретные ключи sb_secret_… (их передают только в заголовке apikey),
+ * старые — JWT service_role (apikey + Authorization). Поддерживаем оба варианта.
+ */
+function serviceHeaders(): Record<string, string> {
+  const raw = Deno.env.get('SUPABASE_SECRET_KEYS');
+  if (raw) {
+    try {
+      const keys = JSON.parse(raw) as Record<string, string>;
+      const key = keys.default ?? Object.values(keys)[0];
+      if (key) return { apikey: key, 'Content-Type': 'application/json' };
+    } catch {
+      /* падаем на старый ключ */
+    }
+  }
+  const legacy = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!legacy) throw new Error('No Supabase service key in environment');
+  return { apikey: legacy, Authorization: `Bearer ${legacy}`, 'Content-Type': 'application/json' };
+}
+
+const headers = serviceHeaders();
 
 export async function select<T>(table: string, query: string): Promise<T[]> {
   const res = await fetch(`${URL_}/rest/v1/${table}?${query}`, { headers });

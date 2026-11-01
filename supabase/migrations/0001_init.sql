@@ -55,7 +55,7 @@ alter table public.payments enable row level security;
 -- Подставьте свой project-ref и секрет CRON_SECRET и выполните вручную:
 -- select cron.schedule('digest-hourly', '17 * * * *', $$
 --   select net.http_post(
---     url := 'https://<project-ref>.functions.supabase.co/bot?cron=digest',
+--     url := 'https://<project-ref>.supabase.co/functions/v1/bot?cron=digest',
 --     headers := jsonb_build_object('x-cron-secret', '<CRON_SECRET>')
 --   );
 -- $$);

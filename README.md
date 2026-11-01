@@ -60,48 +60,27 @@ node scripts/e2e.mjs # прогон двух игроков (нужен playwrig
 
 ## Подключение бота и сервера
 
-### 1. Бот и Mini App (BotFather)
+Сервер выкладывает GitHub: workflow **Deploy server** (`.github/workflows/server.yml`) задаёт секреты функциям Supabase, деплоит `api` и `bot`, вешает вебхук бота и проверяет, что API отвечает. Локально ставить Supabase CLI не нужно.
 
-1. `/newbot` — создайте бота и сохраните токен.
-2. `/newapp` — Mini App с URL `https://grigory2508.github.io/coffee-for-two/` и коротким именем, например `play`.
-3. `/setinline` — включите инлайн-режим (приглашение через `@бот` в любом чате), плейсхолдер: «позвать в кофейню».
-4. `/setmenubutton` — кнопка меню на тот же URL.
+1. **BotFather:** `/newbot` (токен), `/newapp` (URL `https://grigory2508.github.io/coffee-for-two/`, короткое имя `play`, картинка — `bot-assets/app-cover-640x360.png`), `/setinline` (инлайн-приглашения).
+2. **Supabase:** создать проект, выполнить `supabase/migrations/0001_init.sql` в SQL Editor, создать Access Token (Account → Access Tokens).
+3. **GitHub → Settings → Secrets and variables → Actions:**
 
-### 2. Supabase
+   | Тип | Имя | Значение |
+   | --- | --- | --- |
+   | Secret | `SUPABASE_ACCESS_TOKEN` | токен из Supabase |
+   | Secret | `BOT_TOKEN` | токен бота |
+   | Secret | `WEBHOOK_SECRET` | случайная строка из букв, цифр, `_` и `-` |
+   | Secret | `CRON_SECRET` | другая случайная строка |
+   | Variable | `SUPABASE_PROJECT_REF` | ID проекта (`https://<ref>.supabase.co`) |
+   | Variable | `BOT_USERNAME` | имя бота без @ |
+   | Variable | `APP_SHORTNAME` | `play` |
+   | Variable | `ALLOW_DEBUG` | `1` на время теста |
 
-1. Создайте проект. Выполните `supabase/migrations/0001_init.sql` в SQL Editor.
-2. Задайте секреты функций (Dashboard → Edge Functions → Secrets или `supabase secrets set`):
-   - `BOT_TOKEN` — токен бота;
-   - `BOT_USERNAME` — имя бота без @;
-   - `APP_SHORTNAME` — короткое имя Mini App (`play`);
-   - `WEBHOOK_SECRET` — любая случайная строка;
-   - `CRON_SECRET` — другая случайная строка;
-   - `ALLOW_DEBUG=1` — только на время теста (разрешает «силы и +1000»).
-3. Задеплойте функции:
-   ```bash
-   npm run sync-server
-   supabase functions deploy api --no-verify-jwt
-   supabase functions deploy bot --no-verify-jwt
-   ```
-4. Повесьте вебхук бота:
-   ```
-   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<project-ref>.functions.supabase.co/bot&secret_token=<WEBHOOK_SECRET>&allowed_updates=["message","inline_query","pre_checkout_query","my_chat_member"]
-   ```
-5. Сводки раз в час: включите расширения `pg_cron` и `pg_net` и выполните `cron.schedule` из конца файла миграции.
+4. **Actions → Deploy server → Run workflow**, затем **Deploy to GitHub Pages → Run workflow** (адрес API соберётся из `SUPABASE_PROJECT_REF`).
+5. **Сводки раз в час:** включить расширения `pg_cron` и `pg_net` и выполнить `cron.schedule` из конца файла миграции.
 
-### 3. Сборка на GitHub
-
-Settings → Secrets and variables → Actions → **Variables**:
-
-| Переменная | Значение |
-| --- | --- |
-| `BOT_USERNAME` | имя бота без @ |
-| `APP_SHORTNAME` | `play` |
-| `API_URL` | `https://<project-ref>.functions.supabase.co/api` |
-| `POSTHOG_KEY` | ключ проекта PostHog (необязательно) |
-| `DEBUG` | `0`, чтобы скрыть отладку (по умолчанию включена) |
-
-После сохранения перезапустите workflow «Deploy to GitHub Pages». Без `API_URL` игра работает в локальном режиме и в Telegram: соло с NPC, без синхронизации между устройствами.
+Адрес API: `https://<ref>.supabase.co/functions/v1/api`, бота: `https://<ref>.supabase.co/functions/v1/bot`.
 
 ## Что проверено, а что нет
 
