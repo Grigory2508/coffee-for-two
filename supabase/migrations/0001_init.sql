@@ -51,6 +51,10 @@ alter table public.members enable row level security;
 alter table public.notify_state enable row level security;
 alter table public.payments enable row level security;
 
+-- Права для серверных функций (на случай, если автоматическая выдача прав Data API выключена).
+grant usage on schema public to service_role;
+grant select, insert, update, delete on public.cafes, public.members, public.notify_state, public.payments to service_role;
+
 -- Рассылка сводок раз в час (нужны расширения pg_cron и pg_net, включаются в Dashboard → Database → Extensions).
 -- Подставьте свой project-ref и секрет CRON_SECRET и выполните вручную:
 -- select cron.schedule('digest-hourly', '17 * * * *', $$
