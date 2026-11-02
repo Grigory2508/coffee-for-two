@@ -41,12 +41,13 @@ jobs:
       - uses: supabase/setup-cli@v1
         if: steps.cfg.outputs.ready == 'true'
         with:
-          version: latest
+          # Зафиксированная версия: в 3.x поменялись флаги (--remote, --yes)
+          version: 3.0.0
 
       - name: Set function secrets
         if: steps.cfg.outputs.ready == 'true'
         run: |
-          supabase secrets set --project-ref "$PROJECT_REF" \
+          supabase secrets set --remote="$PROJECT_REF" --yes \
             BOT_TOKEN="${{ secrets.BOT_TOKEN }}" \
             BOT_USERNAME="${{ vars.BOT_USERNAME }}" \
             APP_SHORTNAME="${{ vars.APP_SHORTNAME || 'play' }}" \
@@ -57,8 +58,8 @@ jobs:
       - name: Deploy functions
         if: steps.cfg.outputs.ready == 'true'
         run: |
-          supabase functions deploy api --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
-          supabase functions deploy bot --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+          supabase functions deploy api --remote="$PROJECT_REF" --no-verify-jwt --use-api --yes
+          supabase functions deploy bot --remote="$PROJECT_REF" --no-verify-jwt --use-api --yes
 
       - name: Set bot webhook
         if: steps.cfg.outputs.ready == 'true'
