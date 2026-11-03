@@ -1,6 +1,7 @@
 // Ядро игры: чистые функции без DOM и сети. Один и тот же код работает
 // в браузере (локальный режим) и на сервере (Supabase Edge Function).
 import {
+  COMPONENTS,
   CONFIG,
   DECOR_BY_ID,
   DRINKS,
@@ -200,7 +201,7 @@ export function guestsPerShift(s: CafeState): number {
 export function recipeUsage(drink: DrinkId): Partial<Record<StockId, number>> {
   const use: Partial<Record<StockId, number>> = {};
   for (const c of DRINKS[drink].recipe) {
-    const st = c === 'shot' ? 'beans' : c === 'milk' || c === 'foam' ? 'milk' : c === 'syrup' ? 'syrup' : c === 'cocoa' ? 'cocoa' : null;
+    const st = COMPONENTS[c].uses;
     if (st) use[st] = (use[st] ?? 0) + 1;
   }
   return use;
@@ -221,6 +222,12 @@ export function matchesRecipe(made: string[], drink: DrinkId): boolean {
   const a = [...made].sort().join(',');
   const b = [...DRINKS[drink].recipe].sort().join(',');
   return a === b;
+}
+
+/** Меню дня; если оно пустое или устарело — всё открытое меню. */
+export function todayMenu(s: CafeState): DrinkId[] {
+  const f = (s.featured ?? []).filter((d) => s.menu.includes(d));
+  return f.length ? f : s.menu;
 }
 
 export function catInCafe(s: CafeState): boolean {
@@ -272,6 +279,7 @@ export function createCafe(opts: {
     money: CONFIG.startMoney,
     stock: { ...CONFIG.startStock },
     menu: [...START_MENU],
+    featured: [...START_MENU],
     upgrades: {},
     ratingRecent: [],
     regulars: {},
@@ -317,7 +325,7 @@ function npcShift(s: CafeState, at: number, covering: boolean) {
   let earned = 0;
   let served = 0;
   for (let i = 0; i < 4; i++) {
-    const order = pick(rnd, s.menu);
+    const order = pick(rnd, todayMenu(s));
     if (!canMake(s.stock, order)) continue;
     consume(s.stock, order);
     earned += Math.round(DRINKS[order].price * CONFIG.npcEfficiency);
@@ -424,7 +432,7 @@ export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): Shift
   const guests: ShiftGuest[] = [];
   for (let i = 0; i < n; i++) {
     guests.push({
-      order: pick(rnd, s.menu),
+      order: pick(rnd, todayMenu(s)),
       patienceMs: patience + Math.round(rnd() * 4000),
       arriveMs: Math.round((i * span) / n + rnd() * 2500),
     });
@@ -436,7 +444,7 @@ export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): Shift
     const k = 1 + Math.floor(rnd() * (n - 1));
     const fav = REGULARS[reg].favorite;
     guests[k].regular = reg;
-    guests[k].order = s.menu.includes(fav) ? fav : guests[k].order;
+    guests[k].order = todayMenu(s).includes(fav) ? fav : guests[k].order;
     guests[k].patienceMs += 4000; // постоянные гости терпеливее
   }
   return { seed, startedAt: now, guests, catInCafe: catInCafe(s), tables: tablesCount(s), tipBonus: s.marketing?.tipBonus ?? 0 };
@@ -591,7 +599,7 @@ function holdOffice(s: CafeState, actor: PlayerId, at: number) {
   s.office = { by: actor, until: at + CONFIG.officeHoldMs };
 }
 
-const MANAGER_COMMANDS = new Set(['supplyRun', 'unlockDrink', 'buyUpgrade', 'launchMarketing']);
+const MANAGER_COMMANDS = new Set(['supplyRun', 'unlockDrink', 'toggleFeatured', 'buyUpgrade', 'launchMarketing']);
 const BARISTA_COMMANDS = new Set(['startShift', 'finishShift', 'abandonShift']);
 
 export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
@@ -738,10 +746,23 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       requireMoney(s, d.unlockCost);
       s.money -= d.unlockCost;
       s.menu.push(cmd.id);
+      if (s.featured.length < CONFIG.menuSlots) s.featured.push(cmd.id);
       p.managerXp += 15;
       markDay(p, at);
       addLog(s, at, actor, 'drink_unlocked', { id: cmd.id });
       break;
+    }
+    case 'toggleFeatured': {
+      if (!s.menu.includes(cmd.id)) throw new GameError('bad_item');
+      if (s.featured.includes(cmd.id)) {
+        if (s.featured.length <= 1) throw new GameError('menu_min');
+        s.featured = s.featured.filter((d) => d !== cmd.id);
+      } else {
+        if (s.featured.length >= CONFIG.menuSlots) throw new GameError('menu_full', { max: CONFIG.menuSlots });
+        s.featured.push(cmd.id);
+      }
+      bump(s, at);
+      return out;
     }
     case 'proposeSwap': {
       if (s.activeShifts[actor] || s.office?.by === actor) throw new GameError('shift_in_progress');
@@ -948,6 +969,7 @@ export function migrate(s: CafeState): CafeState {
   if ((x as Partial<CafeState>).office === undefined) x.office = null;
   if (!Array.isArray((x as Partial<CafeState>).applications)) x.applications = [];
   if (x.marketing === undefined) x.marketing = null;
+  if (!Array.isArray((x as Partial<CafeState>).featured)) x.featured = x.menu.slice(0, CONFIG.menuSlots);
   x.players.forEach((p, i) => {
     if (!p.role) p.role = i === 0 ? 'barista' : 'manager';
     if (!p.lastActionAt) p.lastActionAt = p.lastSeenAt;

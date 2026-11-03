@@ -7,7 +7,7 @@ const BASE = process.env.BASE ?? 'http://localhost:4173/';
 const OUT = process.env.OUT ?? 'screens';
 mkdirSync(OUT, { recursive: true });
 
-const ICON_TO_STATION = { '☕': 'Эспрессо', '💧': 'Вода', '🥛': 'Молоко', '☁️': 'Пенка', '🍯': 'Сироп', '🍫': 'Какао' };
+const ICON_TO_STATION = { '☕': 'Эспрессо', '💧': 'Кипяток', '🥛': 'Молоко', '☁️': 'Пенка', '🍦': 'Сливки', '🍯': 'Ваниль', '🍮': 'Карамель', '🍫': 'Какао', '🪵': 'Корица', '🧊': 'Лёд' };
 const errors = [];
 const check = (cond, msg) => {
   if (!cond) errors.push(`check failed: ${msg}`);
@@ -36,34 +36,29 @@ const debug = async (page, label) => {
 };
 
 async function startShift(page) {
-  await tab(page, 'Кофейня');
+  await tab(page, 'Стойка');
   await page.getByRole('button', { name: /Встать за стойку|Вернуться за стойку/ }).click();
   await page.waitForSelector('.shift');
 }
 
-async function finishShift(page, label, wipe = true) {
-  let shotTaken = false;
-  for (let tick = 0; tick < 500; tick++) {
+async function finishShift(page, label) {
+  let served = 0;
+  for (let tick = 0; tick < 800; tick++) {
     if (await page.locator('.result').count()) break;
-    if (wipe) {
-      const dirty = page.locator('.table-spot.dirty');
-      const n = await dirty.count();
-      for (let i = 0; i < n; i++) {
-        await dirty.first().click({ timeout: 300 }).catch(() => {});
-        await dirty.first().click({ timeout: 300 }).catch(() => {});
-      }
+    const dirty = page.locator('.table-spot.dirty');
+    if (await dirty.count()) await dirty.first().click({ timeout: 300 }).catch(() => {});
+    const ready = page.locator('.seat.ready');
+    if (await ready.count()) {
+      await ready.first().click({ timeout: 300 }).catch(() => {});
+      if (++served === 1) await shot(page, `${label}-shift`);
+      continue;
     }
-    const guest = page.locator('.guest.active');
-    if (await guest.count()) {
-      const recipe = (await guest.locator('.guest-recipe').innerText()).split(/\s+/).filter(Boolean);
-      for (const icon of recipe) await page.locator('.station', { hasText: ICON_TO_STATION[icon] }).click();
-      await page.getByRole('button', { name: 'Подать' }).click();
-      if (!shotTaken && (await page.locator('.table-spot.busy').count())) {
-        await shot(page, `${label}-shift`);
-        shotTaken = true;
-      }
+    const seat = page.locator('.seat:not(.empty)').first();
+    if (await seat.count()) {
+      const todo = await seat.locator('.ri:not(.done)').allInnerTexts().catch(() => []);
+      if (todo.length) await page.locator('.station', { hasText: ICON_TO_STATION[todo[0].trim()] }).first().click({ timeout: 300 }).catch(() => {});
     }
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(110);
   }
   await page.waitForSelector('.result', { timeout: 90_000 });
   await shot(page, `${label}-result`);
@@ -81,12 +76,16 @@ async function applyTo(page, roleLabel) {
 
 async function approveAll(page) {
   await page.bringToFront();
-  await tab(page, 'Кофейня');
+  await tab(page, 'Команда');
   await page.getByRole('button', { name: 'Одобрить' }).first().click();
   await page.waitForTimeout(300);
 }
 
-const roleOf = async (page) => (await page.locator('.role-badge').first().innerText()).trim();
+const roleOf = async (page) => (await page.locator('.tab-btn').first().innerText()).includes('Дела') ? 'Управляющий' : 'Бариста';
+const closeSheet = async (page) => {
+  const b = page.getByRole('button', { name: 'Понятно' });
+  if (await b.count()) await b.click();
+};
 
 // --- A создаёт кофейню бариста
 const a = await open('anya');
@@ -94,7 +93,7 @@ await a.getByText('Кем будешь в кофейне?').waitFor();
 await shot(a, '01-welcome-roles');
 await a.locator('.role-card', { hasText: 'Бариста' }).click();
 await a.getByRole('button', { name: 'Открыть кофейню' }).click();
-await a.waitForSelector('.team-card');
+await a.waitForSelector('.hud');
 await shot(a, '02-a-barista');
 check((await roleOf(a)).includes('Бариста'), 'A is barista');
 
@@ -105,8 +104,7 @@ const { code, key } = await a.evaluate(() => {
 });
 const inviteQ = `&startapp=cafe_${code}_${key}`;
 
-await tab(a, 'Управление');
-check((await a.locator('.locked-note').count()) >= 1, 'barista sees management locked');
+check((await a.locator('.tab-btn', { hasText: 'Дела' }).count()) === 0, 'barista has no management tab');
 
 // --- B подаёт заявку менеджером, A одобряет
 const b = await open('borya', inviteQ);
@@ -115,12 +113,14 @@ await shot(b, '03-b-invite');
 await applyTo(b, 'Управляющий');
 await shot(b, '04-b-pending');
 await a.bringToFront();
-await tab(a, 'Кофейня');
 await a.waitForTimeout(400);
+check((await a.locator('.tab-btn', { hasText: 'Команда' }).locator('.badge').innerText()) === '1', 'team tab badge for application');
+await tab(a, 'Команда');
 await shot(a, '05-a-application');
 await approveAll(a);
 await b.bringToFront();
-await b.waitForSelector('.team-card', { timeout: 10_000 });
+await b.waitForSelector('.hud', { timeout: 10_000 });
+await closeSheet(b);
 check((await roleOf(b)).includes('Управляющий'), 'B joined as manager');
 check((await b.getByRole('button', { name: /Встать за стойку/ }).count()) === 0, 'manager has no shift button');
 
@@ -133,7 +133,8 @@ await c.waitForTimeout(3500);
 check((await c.getByText('Одобрили 1 из 2').count()) === 1, 'C waits for second approval');
 await approveAll(b);
 await c.bringToFront();
-await c.waitForSelector('.team-card', { timeout: 10_000 });
+await c.waitForSelector('.hud', { timeout: 10_000 });
+await closeSheet(c);
 check((await roleOf(c)).includes('Бариста'), 'C joined as barista');
 await shot(c, '06-c-team');
 
@@ -147,7 +148,7 @@ await x.close();
 await a.bringToFront();
 await startShift(a);
 await c.bringToFront();
-await tab(c, 'Кофейня');
+await tab(c, 'Стойка');
 await c.waitForTimeout(500);
 check((await c.getByText(/Пока касса занята — за ней Anya/).count()) === 1, 'counter busy note for C');
 check(await c.getByRole('button', { name: /Встать за стойку/ }).isDisabled(), 'C start button disabled');
@@ -157,31 +158,31 @@ console.log('A shift:', await finishShift(a, '08-a'));
 
 // --- Кабинет занят: B в «Управлении», C переходит в менеджеры и видит, что кабинет занят
 await b.bringToFront();
-await tab(b, 'Управление');
+await tab(b, 'Дела');
 await b.waitForTimeout(400);
 await c.bringToFront();
-await tab(c, 'Кофейня');
+await tab(c, 'Команда');
 await c.getByRole('button', { name: /Перейти в роль/ }).click();
 await c.waitForTimeout(300);
 check((await roleOf(c)).includes('Управляющий'), 'C switched to manager');
-await tab(c, 'Управление');
+await tab(c, 'Дела');
 await c.waitForTimeout(500);
 check((await c.getByText(/Пока кабинет занят — там Borya/).count()) === 1, 'office busy note for C');
 await shot(c, '09-c-office-busy');
 // B уходит из «Управления» — кабинет освобождается, C заходит
 await b.bringToFront();
-await tab(b, 'Кофейня');
+await tab(b, 'Команда');
 await c.bringToFront();
 await c.waitForTimeout(800);
 check((await c.getByText(/Пока кабинет занят/).count()) === 0, 'office released for C');
 
 // Последний бариста не может уйти из роли
 await a.bringToFront();
-await tab(a, 'Кофейня');
+await tab(a, 'Команда');
 check((await a.getByRole('button', { name: /Перейти в роль/ }).count()) === 0, 'last barista cannot switch');
 
 // --- A (владелец) убирает C, B выходит сам
-await tab(a, 'Мы');
+await tab(a, 'Команда');
 await a.locator('.staff-row', { hasText: 'Vika' }).getByRole('button', { name: 'Убрать' }).click();
 await a.waitForTimeout(400);
 check((await a.locator('.staff-row', { hasText: 'Vika' }).count()) === 0, 'C removed');
@@ -190,13 +191,13 @@ await c.getByText('Кем будешь в кофейне?').waitFor({ timeout: 1
 check(true, 'C sees welcome after removal');
 await shot(a, '10-a-team');
 await b.bringToFront();
-await tab(b, 'Мы');
+await tab(b, 'Команда');
 await b.getByRole('button', { name: /Выйти из кофейни/ }).click();
 await b.getByText('Кем будешь в кофейне?').waitFor({ timeout: 10_000 });
 check(true, 'B left and sees welcome');
 await a.bringToFront();
 await a.waitForTimeout(500);
-await tab(a, 'Кофейня');
+await tab(a, 'Команда');
 check((await a.locator('.staff-row').count()) === 2, 'A + neighbour remain');
 await shot(a, '11-a-after-leave');
 

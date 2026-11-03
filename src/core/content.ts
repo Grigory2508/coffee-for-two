@@ -2,9 +2,22 @@
 
 export type L10n = { ru: string; en: string };
 
-export type ComponentId = 'shot' | 'water' | 'milk' | 'foam' | 'syrup' | 'cocoa';
+export type ComponentId = 'shot' | 'water' | 'milk' | 'foam' | 'cream' | 'syrup' | 'caramel' | 'cocoa' | 'cinnamon' | 'ice';
 export type StockId = 'beans' | 'milk' | 'syrup' | 'cocoa' | 'catFood';
-export type DrinkId = 'espresso' | 'americano' | 'cappuccino' | 'latte' | 'raf' | 'cocoa';
+export type DrinkId =
+  | 'espresso'
+  | 'americano'
+  | 'cappuccino'
+  | 'latte'
+  | 'raf'
+  | 'cocoa'
+  | 'flatWhite'
+  | 'icedLatte'
+  | 'cinnamonCap'
+  | 'caramelLatte'
+  | 'mocha';
+/** Станция за стойкой: кофемашина, молочная станция, полка добавок. */
+export type StationId = 'machine' | 'milk' | 'extras';
 export type UpgradeId = 'machinePro' | 'fridge' | 'cozyHall' | 'terrace';
 export type Role = 'barista' | 'manager';
 export type MarketingId = 'flyers' | 'blogger';
@@ -28,6 +41,8 @@ export const CONFIG = {
   npcMarkup: 1.2,
   swapExpiresMs: 48 * 3600_000,
   // Команда
+  // Меню дня: сколько напитков бариста готовит на смене (из открытых управляющим)
+  menuSlots: 6,
   maxStaff: 5,
   roleMax: { barista: 4, manager: 2 } as Record<Role, number>,
   applicationExpiresMs: 48 * 3600_000,
@@ -56,16 +71,31 @@ export const CONFIG = {
   managerDiscountMax: 0.1,
 };
 
-export const COMPONENTS: Record<ComponentId, { name: L10n; icon: string; uses?: StockId }> = {
-  shot: { name: { ru: 'Эспрессо', en: 'Shot' }, icon: '☕', uses: 'beans' },
-  water: { name: { ru: 'Вода', en: 'Water' }, icon: '💧' },
-  milk: { name: { ru: 'Молоко', en: 'Milk' }, icon: '🥛', uses: 'milk' },
-  foam: { name: { ru: 'Пенка', en: 'Foam' }, icon: '☁️', uses: 'milk' },
-  syrup: { name: { ru: 'Сироп', en: 'Syrup' }, icon: '🍯', uses: 'syrup' },
-  cocoa: { name: { ru: 'Какао', en: 'Cocoa' }, icon: '🍫', uses: 'cocoa' },
+/**
+ * Компоненты напитков. station — где берётся за стойкой; brewMs — сколько готовится
+ * (пока идёт, станция занята, но можно работать с другой чашкой); uses — что тратится со склада.
+ */
+export const COMPONENTS: Record<ComponentId, { name: L10n; icon: string; station: StationId; uses?: StockId; brewMs?: number }> = {
+  shot: { name: { ru: 'Эспрессо', en: 'Shot' }, icon: '☕', station: 'machine', uses: 'beans', brewMs: 1400 },
+  water: { name: { ru: 'Кипяток', en: 'Hot water' }, icon: '💧', station: 'machine' },
+  milk: { name: { ru: 'Молоко', en: 'Milk' }, icon: '🥛', station: 'milk', uses: 'milk' },
+  foam: { name: { ru: 'Пенка', en: 'Foam' }, icon: '☁️', station: 'milk', uses: 'milk', brewMs: 1000 },
+  cream: { name: { ru: 'Сливки', en: 'Whipped cream' }, icon: '🍦', station: 'milk', uses: 'milk' },
+  syrup: { name: { ru: 'Ваниль', en: 'Vanilla' }, icon: '🍯', station: 'extras', uses: 'syrup' },
+  caramel: { name: { ru: 'Карамель', en: 'Caramel' }, icon: '🍮', station: 'extras', uses: 'syrup' },
+  cocoa: { name: { ru: 'Какао', en: 'Cocoa' }, icon: '🍫', station: 'extras', uses: 'cocoa' },
+  cinnamon: { name: { ru: 'Корица', en: 'Cinnamon' }, icon: '🪵', station: 'extras' },
+  ice: { name: { ru: 'Лёд', en: 'Ice' }, icon: '🧊', station: 'extras' },
 };
 
-export const COMPONENT_ORDER: ComponentId[] = ['shot', 'water', 'milk', 'foam', 'syrup', 'cocoa'];
+export const COMPONENT_ORDER: ComponentId[] = ['shot', 'water', 'milk', 'foam', 'cream', 'syrup', 'caramel', 'cocoa', 'cinnamon', 'ice'];
+
+export const STATIONS: Record<StationId, { name: L10n; icon: string }> = {
+  machine: { name: { ru: 'Кофемашина', en: 'Espresso machine' }, icon: '☕' },
+  milk: { name: { ru: 'Молочная станция', en: 'Milk station' }, icon: '🥛' },
+  extras: { name: { ru: 'Добавки', en: 'Extras' }, icon: '🧂' },
+};
+export const STATION_ORDER: StationId[] = ['machine', 'milk', 'extras'];
 
 export interface Drink {
   id: DrinkId;
@@ -82,15 +112,20 @@ export const DRINKS: Record<DrinkId, Drink> = {
   latte: { id: 'latte', name: { ru: 'Латте', en: 'Latte' }, recipe: ['shot', 'milk', 'milk', 'foam'], price: 170, unlockCost: 300 },
   cocoa: { id: 'cocoa', name: { ru: 'Какао', en: 'Hot cocoa' }, recipe: ['cocoa', 'milk', 'foam'], price: 130, unlockCost: 400 },
   raf: { id: 'raf', name: { ru: 'Раф', en: 'Raf' }, recipe: ['shot', 'milk', 'syrup'], price: 190, unlockCost: 500 },
+  flatWhite: { id: 'flatWhite', name: { ru: 'Флэт уайт', en: 'Flat white' }, recipe: ['shot', 'shot', 'milk'], price: 180, unlockCost: 600 },
+  icedLatte: { id: 'icedLatte', name: { ru: 'Айс-латте', en: 'Iced latte' }, recipe: ['shot', 'milk', 'ice'], price: 170, unlockCost: 450 },
+  cinnamonCap: { id: 'cinnamonCap', name: { ru: 'Капучино с корицей', en: 'Cinnamon cappuccino' }, recipe: ['shot', 'milk', 'foam', 'cinnamon'], price: 185, unlockCost: 550 },
+  caramelLatte: { id: 'caramelLatte', name: { ru: 'Карамельный латте', en: 'Caramel latte' }, recipe: ['shot', 'milk', 'foam', 'caramel'], price: 200, unlockCost: 700 },
+  mocha: { id: 'mocha', name: { ru: 'Мокко', en: 'Mocha' }, recipe: ['shot', 'cocoa', 'milk', 'cream'], price: 210, unlockCost: 800 },
 };
 
-export const DRINK_ORDER: DrinkId[] = ['espresso', 'americano', 'cappuccino', 'latte', 'cocoa', 'raf'];
+export const DRINK_ORDER: DrinkId[] = ['espresso', 'americano', 'cappuccino', 'latte', 'icedLatte', 'cocoa', 'raf', 'cinnamonCap', 'flatWhite', 'caramelLatte', 'mocha'];
 export const START_MENU: DrinkId[] = ['espresso', 'americano', 'cappuccino'];
 
 export const STOCK_PACKS: Record<StockId, { name: L10n; icon: string; amount: number; cost: number }> = {
   beans: { name: { ru: 'Зёрна', en: 'Beans' }, icon: '🫘', amount: 20, cost: 300 },
   milk: { name: { ru: 'Молоко', en: 'Milk' }, icon: '🥛', amount: 20, cost: 240 },
-  syrup: { name: { ru: 'Сироп', en: 'Syrup' }, icon: '🍯', amount: 10, cost: 180 },
+  syrup: { name: { ru: 'Сиропы', en: 'Syrups' }, icon: '🍯', amount: 10, cost: 180 },
   cocoa: { name: { ru: 'Какао', en: 'Cocoa' }, icon: '🍫', amount: 10, cost: 160 },
   catFood: { name: { ru: 'Корм для кота', en: 'Cat food' }, icon: '🐟', amount: 10, cost: 120 },
 };
@@ -100,7 +135,7 @@ export const STOCK_ORDER: StockId[] = ['beans', 'milk', 'syrup', 'cocoa', 'catFo
 export const UPGRADES: Record<UpgradeId, { name: L10n; desc: L10n; cost: number; icon: string }> = {
   machinePro: {
     name: { ru: 'Кофемашина Pro', en: 'Pro espresso machine' },
-    desc: { ru: '+15% чаевых за каждый напиток', en: '+15% tips on every drink' },
+    desc: { ru: '+15% чаевых и второй рожок: два эспрессо одновременно', en: '+15% tips and a second group head: two shots at once' },
     cost: 800,
     icon: '⚙️',
   },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, DRINKS, type Role } from './content';
-import { apply, createCafe, digestFor, energyNow, freeRoles, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, roleCount, weekId } from './engine';
+import { apply, createCafe, digestFor, energyNow, freeRoles, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, roleCount, todayMenu, weekId } from './engine';
 import type { CafeState, Command, GuestResult } from './types';
 
 const T0 = Date.UTC(2026, 10, 2, 9, 0, 0); // понедельник
@@ -317,5 +317,33 @@ describe('сводка, неделя, миграция', () => {
     expect(m.players.map((p) => p.role)).toEqual(['barista', 'manager']);
     expect(m.ownerId).toBe('a');
     expect(m.inviteKey).toHaveLength(5);
+  });
+});
+
+describe('меню дня', () => {
+  it('открытый напиток попадает в меню дня, управляющий может его убрать и вернуть', () => {
+    let s = createCafe({ code: 'MENU1', owner: { id: 'm', name: 'M' }, role: 'manager', npcName: 'N', cafeName: 'C', now: T0 });
+    s.money = 5000;
+    s = apply(s, { actor: 'm', at: T0 + 1, cmd: { type: 'unlockDrink', id: 'latte' } }).state;
+    expect(s.featured).toContain('latte');
+    s = apply(s, { actor: 'm', at: T0 + 2, cmd: { type: 'toggleFeatured', id: 'latte' } }).state;
+    expect(s.featured).not.toContain('latte');
+    expect(todayMenu(s)).toEqual(['espresso', 'americano', 'cappuccino']);
+    s = apply(s, { actor: 'm', at: T0 + 3, cmd: { type: 'toggleFeatured', id: 'latte' } }).state;
+    expect(s.featured).toContain('latte');
+  });
+
+  it('гости заказывают только из меню дня', () => {
+    let s = createCafe({ code: 'MENU2', owner: { id: 'm', name: 'M' }, role: 'manager', npcName: 'N', cafeName: 'C', now: T0 });
+    s = apply(s, { actor: 'm', at: T0 + 1, cmd: { type: 'toggleFeatured', id: 'espresso' } }).state;
+    s = apply(s, { actor: 'm', at: T0 + 2, cmd: { type: 'toggleFeatured', id: 'americano' } }).state;
+    expect(() => apply(s, { actor: 'm', at: T0 + 3, cmd: { type: 'toggleFeatured', id: 'cappuccino' } })).toThrow();
+    expect(todayMenu(s)).toEqual(['cappuccino']);
+  });
+
+  it('старое сохранение получает меню дня', () => {
+    const s = createCafe({ code: 'MENU3', owner: { id: 'm', name: 'M' }, role: 'manager', npcName: 'N', cafeName: 'C', now: T0 });
+    delete (s as Partial<typeof s>).featured;
+    expect(migrate(s).featured).toEqual(['espresso', 'americano', 'cappuccino']);
   });
 });

@@ -47,8 +47,6 @@ const ru = {
   catInCafe: '{name} в кофейне: +10% чаевых',
   money: 'монет',
   // смена
-  shiftTitle: 'Смена',
-  shiftHint: 'Собери заказ из ингредиентов и нажми «Подать». Порядок не важен.',
   serve: 'Подать',
   pour: 'Вылить',
   cupEmpty: 'Чашка пустая',
@@ -76,7 +74,8 @@ const ru = {
   capacity: 'до {cap}',
   menuTitle: 'Меню',
   inMenu: 'в меню',
-  unlock: 'Добавить',
+  unlock: 'Открыть',
+  perPack: 'в упаковке ·',
   upgradesTitle: 'Улучшения',
   owned: 'есть',
   discount: 'скидка управляющего {p}%',
@@ -137,7 +136,7 @@ const ru = {
   swapDecline: 'Отказаться',
   swapAsk: 'Давай поменяемся ролями? Зайди в кофейню и согласись ☕',
   managerToday: 'Дела управляющего',
-  managerHint: 'Поездка к поставщику, расширение и реклама стоят 1 силу. Новые напитки в меню — бесплатно.',
+  managerHint: 'Поездка к поставщику, улучшение и реклама — 1⚡. Меню — бесплатно.',
   openManage: 'Перейти к делам',
   baristaHint: 'Твоё дело — гости: варить кофе и убирать столики.',
   notYourRole: 'Этим занимается управляющий — {name}. Можно попросить его карточкой во вкладке «Мы».',
@@ -279,11 +278,99 @@ const ru = {
   minutes: '{n} мин',
   hours: '{n} ч',
   hm: '{h} ч {m} мин',
+  // ---- интерфейс v2 ----
+  tabCounter: 'Стойка',
+  tabOffice: 'Дела',
+  tabTeam: 'Команда',
+  tablesWipe: 'Протри столики — тапни посуду',
+  moreWaiting: 'ещё {n} в очереди',
+  shiftHint: 'Тапни ингредиент — он сам попадёт в нужную чашку. Тапни гостя, чтобы собирать именно его заказ. Готово — тапни гостя.',
+  noOneOrdered: 'Никто это не заказывал',
+  err_menu_min: 'В меню дня должен остаться хотя бы один напиток',
+  err_menu_full: 'В меню дня не больше {max} напитков',
+  energyShort: 'силы',
+  stockAlert: 'мало: {items}',
+  shiftTitle: 'Смена за стойкой',
+  shiftLength: '75 секунд · гостей: {n}',
+  startShiftCost: 'Встать за стойку · 1⚡',
+  menuTodayTitle: 'Меню дня',
+  menuTodayHint: 'Его составляет управляющий. Гости заказывают только эти напитки.',
+  menuTodayCount: 'Меню дня · {n} из {max}',
+  cantMake: 'не хватает продуктов',
+  segStock: 'Склад',
+  segMenu: 'Меню',
+  segGrowth: 'Развитие',
+  fillToNorm: 'Пополнить до нормы',
+  basketSummary: '{n} {n|упаковка|упаковки|упаковок} · {cost} 🪙',
+  basketGo: 'Поехать · 1⚡',
+  basketClear: 'Очистить',
+  enoughFor: '≈ на {n} {n|смену|смены|смен}',
+  packLine: '{have} из {cap} · +{amount} за {price} 🪙',
+  enoughForNone: 'не хватит на смену',
+  notUsedToday: 'не нужно для меню дня',
+  forHome: 'для дома',
+  inToday: '✓ в меню дня',
+  addToday: '+ в меню дня',
+  lacking: 'не хватает {n} 🪙',
+  catalogTitle: 'Все напитки',
+  statsTitle: 'Кофейня в цифрах',
+  statShifts: 'смен',
+  statServed: 'гостей',
+  statEarned: 'заработано',
+  leagueYou: 'Вы на {n} месте',
+  roleLine: 'Ты — {role}',
+  shiftAgain: 'Ещё смену · 1⚡',
+  teamTalk: 'Общение',
+  officeOnlyManager: 'Дела ведёт управляющий',
 };
 
 type Dict = typeof ru;
 
 const en: Dict = {
+  // ---- UI v2 ----
+  tabCounter: 'Counter',
+  tabOffice: 'Tasks',
+  tabTeam: 'Team',
+  tablesWipe: 'Wipe the tables — tap the dishes',
+  moreWaiting: '{n} more in line',
+  shiftHint: 'Tap an ingredient — it goes into the cup that needs it. Tap a guest to build their order. Done — tap the guest.',
+  noOneOrdered: 'Nobody ordered that',
+  err_menu_min: 'Keep at least one drink on today’s menu',
+  err_menu_full: 'Today’s menu holds up to {max} drinks',
+  energyShort: 'energy',
+  stockAlert: 'low: {items}',
+  shiftTitle: 'Shift at the counter',
+  shiftLength: '75 seconds · guests: {n}',
+  startShiftCost: 'Take a shift · 1⚡',
+  menuTodayTitle: 'Today’s menu',
+  menuTodayHint: 'The manager sets it. Guests only order these drinks.',
+  menuTodayCount: 'Today’s menu · {n} of {max}',
+  cantMake: 'not enough supplies',
+  segStock: 'Stock',
+  segMenu: 'Menu',
+  segGrowth: 'Growth',
+  fillToNorm: 'Restock to full',
+  basketSummary: '{n} {n|pack|packs} · {cost} 🪙',
+  basketGo: 'Go · 1⚡',
+  basketClear: 'Clear',
+  enoughFor: '≈ {n} {n|shift|shifts}',
+  packLine: '{have} of {cap} · +{amount} for {price} 🪙',
+  enoughForNone: 'not enough for a shift',
+  notUsedToday: 'not needed for today’s menu',
+  forHome: 'for home',
+  inToday: '✓ on today’s menu',
+  addToday: '+ today’s menu',
+  lacking: '{n} 🪙 short',
+  catalogTitle: 'All drinks',
+  statsTitle: 'The café in numbers',
+  statShifts: 'shifts',
+  statServed: 'guests',
+  statEarned: 'earned',
+  leagueYou: 'You are #{n}',
+  roleLine: 'You are the {role}',
+  shiftAgain: 'Another shift · 1⚡',
+  teamTalk: 'Talk',
+  officeOnlyManager: 'The manager runs the tasks',
   loading: 'Brewing coffee…',
   appTitle: 'Coffee for Two',
   welcomeTitle: 'Open a café together',
@@ -325,8 +412,6 @@ const en: Dict = {
   ratingNew: 'new',
   catInCafe: '{name} is in the café: +10% tips',
   money: 'coins',
-  shiftTitle: 'Shift',
-  shiftHint: 'Build the order from ingredients and tap “Serve”. Order doesn’t matter.',
   serve: 'Serve',
   pour: 'Pour out',
   cupEmpty: 'Cup is empty',
@@ -352,7 +437,8 @@ const en: Dict = {
   capacity: 'max {cap}',
   menuTitle: 'Menu',
   inMenu: 'on menu',
-  unlock: 'Add',
+  unlock: 'Unlock',
+  perPack: 'per pack ·',
   upgradesTitle: 'Upgrades',
   owned: 'owned',
   discount: 'manager discount {p}%',
@@ -408,7 +494,7 @@ const en: Dict = {
   swapDecline: 'Decline',
   swapAsk: 'Let’s swap roles? Open the café and agree ☕',
   managerToday: 'Manager’s tasks',
-  managerHint: 'A supplier run, an upgrade or a campaign costs 1 energy. New menu drinks are free.',
+  managerHint: 'A supplier run, an upgrade or a campaign costs 1⚡. The menu is free.',
   openManage: 'Go to tasks',
   baristaHint: 'Your job is the guests: make coffee and clean tables.',
   notYourRole: 'The manager handles this — {name}. You can ask with a card in the “Us” tab.',
@@ -583,7 +669,21 @@ export function lang(): Lang {
 export function t(key: Key | string, params: Record<string, string | number> = {}): string {
   const dict = DICTS[current] as Record<string, string>;
   const raw = dict[key] ?? (ru as Record<string, string>)[key] ?? key;
-  return raw.replace(/\{(\w+)\}/g, (_, k) => (params[k] !== undefined ? String(params[k]) : `{${k}}`));
+  // {n|смену|смены|смен} — слово в нужной форме для числа n
+  const plural = raw.replace(/\{(\w+)\|([^}]+)\}/g, (_, k, forms: string) => pluralForm(Number(params[k] ?? 0), forms.split('|')));
+  return plural.replace(/\{(\w+)\}/g, (_, k) => (params[k] !== undefined ? String(params[k]) : `{${k}}`));
+}
+
+function pluralForm(n: number, f: string[]): string {
+  if (current === 'ru' && f.length >= 3) {
+    const a = Math.abs(n) % 100;
+    const b = a % 10;
+    if (a > 10 && a < 20) return f[2];
+    if (b === 1) return f[0];
+    if (b >= 2 && b <= 4) return f[1];
+    return f[2];
+  }
+  return n === 1 ? f[0] : f[f.length - 1];
 }
 
 export function L(v: L10n): string {

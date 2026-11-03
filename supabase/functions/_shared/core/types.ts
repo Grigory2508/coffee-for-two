@@ -115,6 +115,8 @@ export interface CafeState {
   money: number;
   stock: Record<StockId, number>;
   menu: DrinkId[];
+  /** Меню дня: что заказывают гости (подмножество menu, до CONFIG.menuSlots). */
+  featured: DrinkId[];
   upgrades: Partial<Record<UpgradeId, true>>;
   ratingRecent: number[]; // удовлетворённость 0..1 последних гостей
   regulars: Partial<Record<RegularId, { visits: number; seenBy: PlayerId[] }>>;
@@ -165,6 +167,7 @@ export type Command =
   | { type: 'leaveCafe' }
   | { type: 'buyUpgrade'; id: UpgradeId }
   | { type: 'unlockDrink'; id: DrinkId }
+  | { type: 'toggleFeatured'; id: DrinkId }
   | { type: 'buyDecor'; id: string }
   | { type: 'placeDecor'; slot: DecorSlot; id: string | null }
   | { type: 'adoptCat'; name: string }

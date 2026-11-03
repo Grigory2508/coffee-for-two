@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { advance, type ShiftSummary } from '../core/engine';
-import { GameError, type CafeState, type Command, type GuestResult, type ShiftPlan } from '../core/types';
+import { GameError, type CafeState, type Command, type GuestResult, type LogEntry, type ShiftPlan } from '../core/types';
 import { L, lang, setLang, t, type Lang } from '../i18n';
 import { makeBackend, parseInviteParam, pendingInvite, type CafePeek, type Invite } from '../net/backend';
 import { CONFIG, ROLES, type Role } from '../core/content';
@@ -10,11 +10,13 @@ import { config } from '../platform/config';
 import { getIdentity } from '../platform/identity';
 import { tg } from '../platform/telegram';
 import { CafeScene } from './art';
-import { GameCtx, useGame, type Game } from './game';
-import { BoardTab, CafeTab, Header, ManageTab, RoomTab, ShiftResult, TopTab } from './screens';
+import { describeLog, GameCtx, timeAgo, useGame, type Game } from './game';
+import { CafeInfoTab, CounterTab, Header, OfficeTab, RoomTab, ShiftResult, TeamTab, teamBadge } from './screens';
+import { digestFor, energyNow, getPlayer } from '../core/engine';
+import { lowStock } from './stock';
 import { Shift } from './Shift';
 
-type Tab = 'cafe' | 'manage' | 'home' | 'board' | 'top';
+type Tab = 'work' | 'cafe' | 'home' | 'team';
 type Phase =
   | { kind: 'loading' }
   | { kind: 'welcome' }
@@ -38,7 +40,9 @@ export function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [state, setState] = useState<CafeState | null>(null);
   const [now, setNow] = useState(clockNow());
-  const [tab, setTab] = useState<Tab>('cafe');
+  const [tab, setTab] = useState<Tab>('work');
+  // «Пока тебя не было» — один раз при входе, живые события его не открывают
+  const [digestItems, setDigestItems] = useState<LogEntry[] | null>(null);
   const [shift, setShift] = useState<ShiftPlan | null>(null);
   const [result, setResult] = useState<{ summary: ShiftSummary; total: number } | null>(null);
   const [toastText, setToastText] = useState<string | null>(null);
@@ -121,6 +125,11 @@ export function App() {
   }, [phase.kind, backend]);
 
   useEffect(() => backend.subscribe((s) => setState(s)), [backend]);
+
+  useEffect(() => {
+    if (phase.kind !== 'game' || !state || digestItems !== null) return;
+    setDigestItems(digestFor(state, me.id).slice(-6));
+  }, [phase.kind, state]);
 
   // Игрока убрали из команды (или он вышел в другой вкладке) — возвращаем на старт
   const removed = phase.kind === 'game' && !!state && !state.players.some((p) => p.id === me.id);
@@ -290,10 +299,21 @@ export function App() {
     onLeft: () => {
       setShift(null);
       setResult(null);
-      setTab('cafe');
+      setTab('work');
       setState(null);
       setPhase({ kind: 'welcome' });
     },
+  };
+
+  const meP = getPlayer(view, me.id);
+  const isManager = meP?.role === 'manager';
+  const tBadge = teamBadge(view, me.id);
+  const lowN = isManager ? lowStock(view).length : 0;
+  const canAgain = !!meP && energyNow(meP, now).energy >= 1;
+  const go = (id: Tab) => {
+    tg.haptic('select');
+    setTab(id);
+    window.scrollTo(0, 0);
   };
 
   return (
@@ -301,49 +321,81 @@ export function App() {
       <div class="app">
         {shift ? (
           <Shift plan={shift} onDone={finishShift} />
-        ) : result ? (
-          <>
-            <Header />
-            <main>
-              <ShiftResult summary={result.summary} total={result.total} onClose={() => setResult(null)} />
-            </main>
-          </>
         ) : (
           <>
-            <Header />
+            <Header
+              onRating={() => go('cafe')}
+              onAlert={() => go(isManager ? 'work' : 'team')}
+              extra={config.debug ? <DebugPanel onReset={() => location.reload()} /> : null}
+            />
             <main>
-              {tab === 'cafe' && <CafeTab onStartShift={startShift} onOpenManage={() => setTab('manage')} />}
-              {tab === 'manage' && <ManageTab />}
-              {tab === 'home' && <RoomTab />}
-              {tab === 'board' && <BoardTab />}
-              {tab === 'top' && <TopTab />}
-            </main>
-            <nav class="tabs">
-              {(
-                [
-                  ['cafe', '☕', t('tabCafe')],
-                  ['manage', '📋', t('tabManage')],
-                  ['home', view.room.unlocked ? '🏠' : '🔒', t('tabHome')],
-                  ['board', '💬', t('tabBoard')],
-                  ['top', '🏆', t('tabTop')],
-                ] as [Tab, string, string][]
-              ).map(([id, icon, label]) => (
-                <button
-                  class={`tab-btn ${tab === id ? 'on' : ''}`}
-                  onClick={() => {
-                    tg.haptic('select');
-                    setTab(id);
+              {result ? (
+                <ShiftResult
+                  summary={result.summary}
+                  total={result.total}
+                  canAgain={canAgain}
+                  onAgain={() => {
+                    setResult(null);
+                    void startShift();
                   }}
-                >
-                  <span class="tab-icon">{icon}</span>
-                  <span class="tab-label">{label}</span>
-                </button>
-              ))}
-            </nav>
+                  onClose={() => setResult(null)}
+                />
+              ) : (
+                <>
+                  {tab === 'work' && (isManager ? <OfficeTab /> : <CounterTab onStartShift={startShift} />)}
+                  {tab === 'cafe' && <CafeInfoTab />}
+                  {tab === 'home' && <RoomTab />}
+                  {tab === 'team' && <TeamTab />}
+                </>
+              )}
+            </main>
+            {!result && (
+              <nav class="tabs">
+                {(
+                  [
+                    ['work', isManager ? '📋' : '☕', isManager ? t('tabOffice') : t('tabCounter'), lowN],
+                    ['cafe', '🏪', t('tabCafe'), 0],
+                    ['home', view.room.unlocked ? '🏠' : '🔒', t('tabHome'), 0],
+                    ['team', '💬', t('tabTeam'), tBadge],
+                  ] as [Tab, string, string, number][]
+                ).map(([id, icon, label, badge]) => (
+                  <button class={`tab-btn ${tab === id ? 'on' : ''}`} onClick={() => go(id)}>
+                    <span class="tab-icon">
+                      {icon}
+                      {badge > 0 && <span class="badge">{badge}</span>}
+                    </span>
+                    <span class="tab-label">{label}</span>
+                  </button>
+                ))}
+              </nav>
+            )}
+            {!!digestItems?.length && !result && (
+              <div class="sheet-bg" onClick={() => setDigestItems([])}>
+                <div class="sheet" onClick={(e) => e.stopPropagation()}>
+                  <div class="sheet-grip" />
+                  <h3>📬 {t('whileAway')}</h3>
+                  <ul class="log">
+                    {digestItems.map((d) => (
+                      <li>
+                        <span class="muted small">{timeAgo(now, d.at)}</span> {describeLog(view, d)}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    class="btn primary wide"
+                    onClick={() => {
+                      setDigestItems([]);
+                      void send({ type: 'seen' }, { quiet: true });
+                    }}
+                  >
+                    {t('gotIt')}
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
         {askWrite && <WriteAccessModal onAnswer={onWriteAnswer} />}
-        {config.debug && !shift && <DebugPanel onReset={() => location.reload()} />}
         {toastText && <div class="toast">{toastText}</div>}
       </div>
     </GameCtx.Provider>

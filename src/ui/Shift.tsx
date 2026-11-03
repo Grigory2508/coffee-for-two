@@ -1,30 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { COMPONENTS, COMPONENT_ORDER, CONFIG, DRINKS, REGULARS, type ComponentId, type StockId } from '../core/content';
-import { matchesRecipe, recipeUsage } from '../core/engine';
+import { COMPONENTS, COMPONENT_ORDER, CONFIG, DRINKS, REGULARS, STATIONS, STATION_ORDER, type ComponentId, type StationId, type StockId } from '../core/content';
+import { recipeUsage, todayMenu } from '../core/engine';
 import type { GuestResult, ShiftPlan } from '../core/types';
 import { L, t } from '../i18n';
 import { now as clockNow } from '../platform/clock';
 import { tg } from '../platform/telegram';
 import { useGame } from './game';
 
-const COMPONENT_STOCK: Partial<Record<ComponentId, StockId>> = { shot: 'beans', milk: 'milk', foam: 'milk', syrup: 'syrup', cocoa: 'cocoa' };
+// Смена в духе Cooking Fever, но на 75 секунд и только тапами:
+// у каждого гостя у стойки своя чашка; ингредиент сам уходит в первую чашку, которой он нужен
+// (или в выбранную); эспрессо и пенка готовятся с таймером — пока машина работает, собираешь другие чашки.
+
 const GUEST_FACES = ['🧑', '👩', '👨‍🦱', '👩‍🦰', '🧔', '👱‍♀️', '🧑‍🎓', '👨‍💼'];
+const SEATS = 3;
+const TABLE_STAY_MS = 6000;
 
 interface Popup {
   id: number;
   text: string;
   good: boolean;
+  seat: number;
 }
 
 interface Table {
   status: 'free' | 'busy' | 'dirty';
   until: number;
-  wipes: number;
   face: string;
 }
 
-const WIPES_TO_CLEAN = 2;
-const TABLE_STAY_MS = 6000;
+interface Cup {
+  items: ComponentId[];
+  brewing: { c: ComponentId; until: number; total: number }[];
+}
+
+const emptyCup = (): Cup => ({ items: [], brewing: [] });
+const count = (list: ComponentId[], c: ComponentId) => list.reduce((n, x) => n + (x === c ? 1 : 0), 0);
+const contents = (cup: Cup) => [...cup.items, ...cup.brewing.map((b) => b.c)];
 
 export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: GuestResult[], cleanliness: number) => void }) {
   const { state } = useGame();
@@ -32,37 +43,56 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const t0 = useRef(performance.now() - startOffset);
   const [elapsed, setElapsed] = useState(startOffset);
   const [results, setResults] = useState<Map<number, GuestResult>>(new Map());
-  const [cup, setCup] = useState<ComponentId[]>([]);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [cups, setCups] = useState<Map<number, Cup>>(new Map());
+  const [picked, setPicked] = useState<number | null>(null);
   const [stock, setStock] = useState<Record<StockId, number>>({ ...state.stock });
   const [popups, setPopups] = useState<Popup[]>([]);
-  const [hints, setHints] = useState<boolean>(() => {
-    try {
-      const v = localStorage.getItem('cft:hints');
-      return v === null ? true : v === '1';
-    } catch {
-      return true;
-    }
-  });
+  const [bounce, setBounce] = useState<ComponentId | null>(null);
+  const [streak, setStreak] = useState(0);
+  const [coins, setCoins] = useState(0);
   const finished = useRef(false);
-  const [tables, setTables] = useState<Table[]>(() =>
-    Array.from({ length: plan.tables ?? CONFIG.tablesBase }, () => ({ status: 'free', until: 0, wipes: 0, face: '' })),
-  );
-  // Чистота зала: доля не-грязных столиков, усреднённая по времени смены
+  const [tables, setTables] = useState<Table[]>(() => Array.from({ length: plan.tables ?? CONFIG.tablesBase }, () => ({ status: 'free', until: 0, face: '' })));
   const cleanSum = useRef(0);
   const cleanSamples = useRef(0);
   const cleanliness = () => (cleanSamples.current ? cleanSum.current / cleanSamples.current : 1);
+
+  // Сколько «рожков» у кофемашины: с Pro — два эспрессо одновременно
+  const heads: Record<StationId, number> = { machine: state.upgrades.machinePro ? 2 : 1, milk: 1, extras: 99 };
+
+  // На станциях только то, что нужно для меню дня (и заказов этой смены)
+  const used = useMemo(() => {
+    const set = new Set<ComponentId>();
+    for (const d of todayMenu(state)) for (const c of DRINKS[d].recipe) set.add(c);
+    for (const g of plan.guests) for (const c of DRINKS[g.order].recipe) set.add(c);
+    return COMPONENT_ORDER.filter((c) => set.has(c));
+  }, []);
 
   useEffect(() => {
     const id = window.setInterval(() => setElapsed(performance.now() - t0.current), 100);
     return () => window.clearInterval(id);
   }, []);
 
+  const cupOf = (i: number) => cups.get(i) ?? emptyCup();
+
+  // Готовка: то, что «сварилось», переходит в чашку
+  useEffect(() => {
+    let any = false;
+    for (const c of cups.values()) if (c.brewing.some((b) => b.until <= elapsed)) any = true;
+    if (!any) return;
+    const next = new Map(cups);
+    for (const [i, c] of cups) {
+      const done = c.brewing.filter((b) => b.until <= elapsed);
+      if (done.length) next.set(i, { items: [...c.items, ...done.map((b) => b.c)], brewing: c.brewing.filter((b) => b.until > elapsed) });
+    }
+    setCups(next);
+    tg.haptic('tap');
+  }, [elapsed]);
+
   // Столики: гости уходят и оставляют посуду; считаем чистоту зала
   useEffect(() => {
     if (finished.current) return;
     if (tables.some((tb) => tb.status === 'busy' && tb.until <= elapsed)) {
-      setTables((ts) => ts.map((tb) => (tb.status === 'busy' && tb.until <= elapsed ? { ...tb, status: 'dirty', wipes: 0 } : tb)));
+      setTables((ts) => ts.map((tb) => (tb.status === 'busy' && tb.until <= elapsed ? { ...tb, status: 'dirty' } : tb)));
     }
     if (elapsed >= (plan.guests[0]?.arriveMs ?? 0)) {
       cleanSum.current += tables.filter((tb) => tb.status !== 'dirty').length / tables.length;
@@ -73,20 +103,14 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   function wipe(i: number) {
     if (finished.current) return;
     tg.haptic('tap');
-    setTables((ts) =>
-      ts.map((tb, k) => {
-        if (k !== i || tb.status !== 'dirty') return tb;
-        const wipes = tb.wipes + 1;
-        return wipes >= WIPES_TO_CLEAN ? { status: 'free', until: 0, wipes: 0, face: '' } : { ...tb, wipes };
-      }),
-    );
+    setTables((ts) => ts.map((tb, k) => (k === i && tb.status === 'dirty' ? { status: 'free', until: 0, face: '' } : tb)));
   }
 
   function seat(face: string) {
     setTables((ts) => {
       const idx = ts.findIndex((tb) => tb.status === 'free');
-      if (idx < 0) return ts; // свободных нет — гость берёт с собой
-      return ts.map((tb, k) => (k === idx ? { status: 'busy', until: elapsed + TABLE_STAY_MS, wipes: 0, face } : tb));
+      if (idx < 0) return ts;
+      return ts.map((tb, k) => (k === idx ? { status: 'busy', until: elapsed + TABLE_STAY_MS, face } : tb));
     });
   }
 
@@ -97,14 +121,14 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     const next = new Map(results);
     plan.guests.forEach((g, i) => {
       if (next.has(i)) return;
-      const waited = elapsed - g.arriveMs;
-      if (waited >= g.patienceMs || elapsed >= CONFIG.shiftDurationMs) {
+      if (elapsed - g.arriveMs >= g.patienceMs || elapsed >= CONFIG.shiftDurationMs) {
         next.set(i, { i, outcome: 'left', waitMs: g.patienceMs });
         changed = true;
       }
     });
     if (changed) {
       setResults(next);
+      setStreak(0);
       tg.haptic('error');
     }
     if (next.size === plan.guests.length) {
@@ -113,66 +137,106 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     }
   }, [elapsed]);
 
-  const queue = useMemo(
+  const waiting = useMemo(
     () => plan.guests.map((g, i) => ({ g, i })).filter(({ g, i }) => g.arriveMs <= elapsed && !results.has(i)),
     [elapsed, results],
   );
-  const target = queue.find((q) => q.i === selected) ?? queue[0];
+  const atCounter = waiting.slice(0, SEATS);
   const upcoming = plan.guests.some((g, i) => g.arriveMs > elapsed && !results.has(i));
+  const face = (i: number) => {
+    const g = plan.guests[i];
+    return g.regular ? REGULARS[g.regular].avatar : GUEST_FACES[(plan.seed + i) % GUEST_FACES.length];
+  };
 
-  const cupUsage = useMemo(() => {
+  // Склад «в работе» во всех чашках
+  const inCups = useMemo(() => {
     const u: Partial<Record<StockId, number>> = {};
-    for (const c of cup) {
-      const st = COMPONENT_STOCK[c];
-      if (st) u[st] = (u[st] ?? 0) + 1;
-    }
+    for (const cup of cups.values())
+      for (const c of contents(cup)) {
+        const st = COMPONENTS[c].uses;
+        if (st) u[st] = (u[st] ?? 0) + 1;
+      }
     return u;
-  }, [cup]);
+  }, [cups]);
 
-  function addComponent(c: ComponentId) {
+  const brewingAt = (st: StationId) => [...cups.values()].flatMap((c) => c.brewing.filter((b) => COMPONENTS[b.c].station === st));
+  const stationProgress = (st: StationId) => {
+    const all = brewingAt(st);
+    if (!all.length) return 0;
+    const b = all.reduce((x, y) => (x.until < y.until ? x : y));
+    return 1 - Math.max(0, b.until - elapsed) / b.total;
+  };
+
+  const needs = (i: number, c: ComponentId) => count(DRINKS[plan.guests[i].order].recipe, c) > count(contents(cupOf(i)), c);
+  const complete = (i: number) => {
+    const cup = cupOf(i);
+    if (cup.brewing.length) return false;
+    const r = DRINKS[plan.guests[i].order].recipe;
+    return cup.items.length === r.length && r.every((c) => count(cup.items, c) === count(r, c));
+  };
+
+  function add(c: ComponentId) {
     if (finished.current) return;
-    const st = COMPONENT_STOCK[c];
-    if (st && (cupUsage[st] ?? 0) + 1 > stock[st]) {
+    const comp = COMPONENTS[c];
+    // Куда: в выбранную чашку, если ей это нужно, иначе — первому гостю у стойки, кому нужно
+    const target = picked !== null && atCounter.some((q) => q.i === picked) && needs(picked, c) ? picked : atCounter.find((q) => needs(q.i, c))?.i;
+    const st = comp.uses;
+    const noStock = !!st && (inCups[st] ?? 0) + 1 > stock[st];
+    const machineBusy = !!comp.brewMs && brewingAt(comp.station).length >= heads[comp.station];
+    if (target === undefined || noStock || machineBusy) {
       tg.haptic('error');
+      setBounce(c);
+      window.setTimeout(() => setBounce(null), 350);
       return;
     }
-    if (cup.length >= 5) return;
-    tg.haptic('tap');
-    setCup([...cup, c]);
+    const cup = cupOf(target);
+    const next = new Map(cups);
+    if (comp.brewMs) {
+      tg.haptic('select');
+      next.set(target, { ...cup, brewing: [...cup.brewing, { c, until: elapsed + comp.brewMs, total: comp.brewMs }] });
+    } else {
+      tg.haptic('tap');
+      next.set(target, { ...cup, items: [...cup.items, c] });
+    }
+    setCups(next);
   }
 
-  function popup(text: string, good: boolean) {
+  function popup(text: string, good: boolean, seatIdx: number) {
     const id = Math.random();
-    setPopups((p) => [...p, { id, text, good }]);
+    setPopups((p) => [...p, { id, text, good, seat: seatIdx }]);
     window.setTimeout(() => setPopups((p) => p.filter((x) => x.id !== id)), 1100);
   }
 
-  function serve() {
-    if (finished.current || !target || !cup.length) return;
-    const { g, i } = target;
-    const ok = matchesRecipe(cup, g.order);
+  function serve(i: number, seatIdx: number) {
+    if (finished.current || !complete(i)) return;
+    const g = plan.guests[i];
     const waitMs = Math.max(0, elapsed - g.arriveMs);
     // Склад тратится по рецепту заказа — так же считает сервер
     const use = recipeUsage(g.order);
-    const enough = (Object.keys(use) as StockId[]).every((k) => stock[k] >= (use[k] ?? 0));
-    const outcome = ok && enough ? 'served' : 'wrong';
+    const enough = (Object.keys(use) as StockId[]).every((s) => stock[s] >= (use[s] ?? 0));
     if (enough) {
       const ns = { ...stock };
-      for (const k of Object.keys(use) as StockId[]) ns[k] -= use[k] ?? 0;
+      for (const s of Object.keys(use) as StockId[]) ns[s] -= use[s] ?? 0;
       setStock(ns);
     }
     const next = new Map(results);
-    next.set(i, { i, outcome, waitMs });
+    next.set(i, { i, outcome: enough ? 'served' : 'wrong', waitMs });
     setResults(next);
-    setCup([]);
-    setSelected(null);
-    seat(target.g.regular ? REGULARS[target.g.regular].avatar : GUEST_FACES[(plan.seed + target.i) % GUEST_FACES.length]);
-    if (outcome === 'served') {
+    const nc = new Map(cups);
+    nc.delete(i);
+    setCups(nc);
+    if (picked === i) setPicked(null);
+    seat(face(i));
+    if (enough) {
       tg.haptic('success');
-      popup(`+${DRINKS[g.order].price} 🪙`, true);
+      const s = streak + 1;
+      setStreak(s);
+      setCoins(coins + DRINKS[g.order].price);
+      popup(`+${DRINKS[g.order].price} 🪙`, true, seatIdx);
     } else {
       tg.haptic('error');
-      popup('✗', false);
+      setStreak(0);
+      popup('✗', false, seatIdx);
     }
   }
 
@@ -192,102 +256,123 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   return (
     <div class="shift">
       <div class="shift-top">
-        <div class="timer">
-          <div class="timer-fill" style={{ width: `${(timeLeft / CONFIG.shiftDurationMs) * 100}%` }} />
+        <div class={`shift-clock ${timeLeft < 15000 ? 'low' : ''}`}>{Math.ceil(timeLeft / 1000)}</div>
+        <div class="timer grow">
+          <div class={`timer-fill ${timeLeft < 15000 ? 'low' : ''}`} style={{ width: `${(timeLeft / CONFIG.shiftDurationMs) * 100}%` }} />
         </div>
-        <div class="shift-meta">
-          <span>
-            ☕ {servedCount}/{plan.guests.length}
-          </span>
-          {plan.catInCafe && state.cat && <span>🐈 {state.cat.name}</span>}
-          <label class="hint-toggle">
-            <input
-              type="checkbox"
-              checked={hints}
-              onChange={(e) => {
-                const v = (e.target as HTMLInputElement).checked;
-                setHints(v);
-                try {
-                  localStorage.setItem('cft:hints', v ? '1' : '0');
-                } catch {
-                  /* ignore */
-                }
-              }}
-            />{' '}
-            {t('hints')}
-          </label>
-        </div>
+        <span class="shift-chip">
+          ☕ {servedCount}/{plan.guests.length}
+        </span>
+        <span class="shift-chip">🪙 {coins}</span>
+        {streak >= 2 && <span class="shift-chip streak">🔥 ×{streak}</span>}
+        <button class="shift-close" onClick={endEarly} aria-label={t('endShift')}>
+          ✕
+        </button>
       </div>
 
-      <div class="queue">
-        {queue.slice(0, 3).map(({ g, i }) => {
-          const waited = elapsed - g.arriveMs;
-          const left = Math.max(0, 1 - waited / g.patienceMs);
+      {/* Стойка: три места; у каждого гостя тикет, кольцо терпения и своя чашка */}
+      <div class="counter-seats">
+        {Array.from({ length: SEATS }, (_, k) => {
+          const q = atCounter[k];
+          if (!q) return <div class="seat empty">{k === 0 && !waiting.length ? <span class="muted small">{upcoming ? t('nextGuest') : '…'}</span> : null}</div>;
+          const { g, i } = q;
+          const left = Math.max(0, 1 - (elapsed - g.arriveMs) / g.patienceMs);
           const reg = g.regular ? REGULARS[g.regular] : null;
+          const cup = cupOf(i);
+          const have = [...contents(cup)];
+          const done = complete(i);
+          const ring = left > 0.5 ? 'var(--ok)' : left > 0.25 ? 'var(--warn)' : 'var(--bad)';
           return (
-            <button class={`guest ${target?.i === i ? 'active' : ''} ${reg ? 'regular' : ''}`} onClick={() => setSelected(i)}>
-              <div class="guest-face">{reg ? reg.avatar : GUEST_FACES[(plan.seed + i) % GUEST_FACES.length]}</div>
-              {reg && <div class="guest-name">★ {L(reg.name)}</div>}
-              <div class="guest-order">{L(DRINKS[g.order].name)}</div>
-              {hints && <div class="guest-recipe">{DRINKS[g.order].recipe.map((c) => COMPONENTS[c].icon).join(' ')}</div>}
-              <div class="patience">
-                <div class={`patience-fill ${left < 0.3 ? 'low' : ''}`} style={{ width: `${left * 100}%` }} />
+            <div class={`seat ${done ? 'ready' : ''} ${picked === i ? 'picked' : ''} ${left < 0.25 ? 'angry' : ''}`} onClick={() => (done ? serve(i, k) : setPicked(picked === i ? null : i))}>
+              {popups
+                .filter((p) => p.seat === k)
+                .map((p) => (
+                  <div class={`popup ${p.good ? 'good' : 'bad'}`} key={p.id}>
+                    {p.text}
+                  </div>
+                ))}
+              <div class="guest-face" style={{ background: `conic-gradient(${ring} ${left * 360}deg, var(--line) 0)` }}>
+                <span>{face(i)}</span>
               </div>
-            </button>
+              {reg && <div class="guest-name">★ {L(reg.name)}</div>}
+              <div class="ticket">
+                <div class="ticket-name">{L(DRINKS[g.order].name)}</div>
+                <div class="ticket-recipe">
+                  {DRINKS[g.order].recipe.map((c) => {
+                    const k2 = have.indexOf(c);
+                    const ok = k2 >= 0;
+                    if (ok) have.splice(k2, 1);
+                    return <span class={`ri ${ok ? 'done' : ''}`}>{COMPONENTS[c].icon}</span>;
+                  })}
+                </div>
+              </div>
+              <div class="cup">
+                {cup.items.map((c) => (
+                  <span class="cup-item">{COMPONENTS[c].icon}</span>
+                ))}
+                {cup.brewing.map((b) => (
+                  <span class="cup-item brewing" style={{ opacity: 0.3 + 0.7 * (1 - Math.max(0, b.until - elapsed) / b.total) }}>
+                    {COMPONENTS[b.c].icon}
+                  </span>
+                ))}
+              </div>
+              {done ? <div class="seat-cta">{t('serve')} ✓</div> : picked === i ? <div class="seat-pin">📌</div> : null}
+            </div>
           );
         })}
-        {!queue.length && <div class="queue-empty">{upcoming ? t('nextGuest') : '…'}</div>}
       </div>
+      {waiting.length > SEATS && <div class="queue-more">{t('moreWaiting', { n: waiting.length - SEATS })}</div>}
 
       <div class="tables">
         {tables.map((tb, i) => (
           <button class={`table-spot ${tb.status}`} onClick={() => wipe(i)} disabled={tb.status !== 'dirty'} aria-label={t('tables')}>
-            <span class="table-top">{tb.status === 'busy' ? tb.face : tb.status === 'dirty' ? (tb.wipes ? '🧽' : '🍽️') : '🪑'}</span>
+            <span class="table-top">{tb.status === 'busy' ? tb.face : tb.status === 'dirty' ? '🍽️' : '🪑'}</span>
           </button>
         ))}
-        <span class="tables-note small">{t('tables')}</span>
+        <span class="tables-note small">{tables.some((tb) => tb.status === 'dirty') ? t('tablesWipe') : t('tables')}</span>
       </div>
 
-      <div class="counter">
-        <div class="cup">
-          {popups.map((p) => (
-            <div class={`popup ${p.good ? 'good' : 'bad'}`} key={p.id}>
-              {p.text}
-            </div>
-          ))}
-          <div class="cup-body">
-            {cup.length ? cup.map((c) => <span class="cup-item">{COMPONENTS[c].icon}</span>) : <span class="cup-empty">{t('cupEmpty')}</span>}
-          </div>
-        </div>
-        <div class="cup-actions">
-          <button class="btn ghost" disabled={!cup.length} onClick={() => setCup([])}>
-            {t('pour')}
-          </button>
-          <button class="btn primary" disabled={!cup.length || !target} onClick={serve}>
-            {t('serve')}
-          </button>
-        </div>
-      </div>
-
+      {/* Станции — в зоне большого пальца. Показываем только нужное для меню дня. */}
       <div class="stations">
-        {COMPONENT_ORDER.map((c) => {
-          const st = COMPONENT_STOCK[c];
-          const avail = st ? stock[st] - (cupUsage[st] ?? 0) : Infinity;
+        {STATION_ORDER.map((sid) => {
+          const comps = used.filter((c) => COMPONENTS[c].station === sid);
+          if (!comps.length) return null;
+          const brewing = brewingAt(sid).length;
           return (
-            <button class="station" disabled={avail <= 0} onClick={() => addComponent(c)}>
-              <span class="station-icon">{COMPONENTS[c].icon}</span>
-              <span class="station-name">{L(COMPONENTS[c].name)}</span>
-              {st && <span class="station-stock">{avail > 0 ? avail : t('outOf')}</span>}
-            </button>
+            <div class={`station-group st-${sid}`}>
+              <div class="station-label">
+                <span>{L(STATIONS[sid].name)}</span>
+                {sid !== 'extras' && (
+                  <span class="station-heads">
+                    {Array.from({ length: heads[sid] }, (_, h) => (
+                      <span class={`head ${h < brewing ? 'on' : ''}`}>{h < brewing && h === 0 ? <i style={{ width: `${stationProgress(sid) * 100}%` }} /> : null}</span>
+                    ))}
+                  </span>
+                )}
+              </div>
+              <div class="station-row">
+                {comps.map((c) => {
+                  const st = COMPONENTS[c].uses;
+                  const avail = st ? stock[st] - (inCups[st] ?? 0) : Infinity;
+                  const wanted = atCounter.some((q) => needs(q.i, c));
+                  return (
+                    <button
+                      class={`station ${COMPONENTS[c].brewMs ? 'timed' : ''} ${wanted ? 'wanted' : ''} ${bounce === c ? 'bounce' : ''}`}
+                      disabled={avail <= 0}
+                      onClick={() => add(c)}
+                    >
+                      <span class="station-icon">{COMPONENTS[c].icon}</span>
+                      <span class="station-name">{L(COMPONENTS[c].name)}</span>
+                      {st && avail <= 5 && <span class="station-stock">{avail > 0 ? avail : t('outOf')}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </div>
-      <div class="shift-foot">
-        <span class="muted">{t('tablesHint')}</span>
-        <button class="link" onClick={endEarly}>
-          {t('endShift')}
-        </button>
-      </div>
+      <div class="shift-foot muted small">{t('shiftHint')}</div>
     </div>
   );
 }

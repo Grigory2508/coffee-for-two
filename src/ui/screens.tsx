@@ -21,7 +21,8 @@ import {
   type DecorSlot,
   type StockId,
 } from '../core/content';
-import { capacity, counterHolder, digestFor, energyNow, freeRoles, getPlayer, humans, level, officeHolder, packPrice, playerByRole, rating, roleCount, roomGate, type ShiftSummary } from '../core/engine';
+import { canMake, capacity, catInCafe, counterHolder, energyNow, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, roomGate, todayMenu, type ShiftSummary } from '../core/engine';
+import { fillBasket, lowStock, shiftsLeft, stockByUrgency } from './stock';
 import type { CafeState } from '../core/types';
 import { leaderboard } from '../core/leaderboard';
 import { fmtDuration, L, t } from '../i18n';
@@ -42,35 +43,39 @@ export function Stars({ value }: { value: number | null }) {
   );
 }
 
-export function Header() {
-  const { state } = useGame();
+/** Закреплённая шапка: название и рейтинг, деньги, свои силы, тревога по складу. */
+export function Header({ onRating, onAlert, extra }: { onRating?: () => void; onAlert?: () => void; extra?: preact.ComponentChildren }) {
+  const { state, me, now } = useGame();
+  const p = getPlayer(state, me.id);
+  const e = p ? energyNow(p, now) : null;
+  const low = lowStock(state);
   return (
-    <header class="header">
-      <div class="header-name">{state.name}</div>
-      <div class="header-stats">
-        <span class="money">🪙 {state.money}</span>
+    <header class="hud">
+      <button class="hud-name" onClick={onRating}>
+        <b>{state.name}</b>
         <Stars value={rating(state)} />
+      </button>
+      <div class="hud-stats">
+        {low.length > 0 && (
+          <button class="hud-chip warn" onClick={onAlert} aria-label={t('stockAlert', { items: '' })}>
+            ⚠ {low.map((k) => STOCK_PACKS[k].icon).join('')}
+          </button>
+        )}
+        <span class="hud-chip">
+          🪙 <b>{state.money}</b>
+        </span>
+        {e && (
+          <span class="hud-chip energy-chip" title={t('energy')}>
+            ⚡ <b>{e.energy}/{CONFIG.energyMax}</b>
+            {e.nextAt ? <small>{fmtDuration(e.nextAt - now)}</small> : null}
+          </span>
+        )}
+        {extra}
       </div>
     </header>
   );
 }
 
-function Energy() {
-  const { state, me, now } = useGame();
-  const p = getPlayer(state, me.id)!;
-  const e = energyNow(p, now);
-  return (
-    <div class="energy">
-      <span class="label">{t('energy')}</span>
-      <span class="pips">
-        {Array.from({ length: CONFIG.energyMax }, (_, i) => (
-          <span class={`pip ${i < e.energy ? 'on' : ''}`} />
-        ))}
-      </span>
-      <span class="muted small">{e.nextAt ? t('energyNext', { t: fmtDuration(e.nextAt - now) }) : t('energyFull')}</span>
-    </div>
-  );
-}
 
 export async function sharePartnerInvite(code: string, key: string, toast: (s: string) => void, source: string) {
   const url = inviteLink(code, key);
@@ -137,7 +142,7 @@ function TeamCard({ manage }: { manage?: boolean }) {
         );
       })}
       {canInvite && (
-        <button class="btn primary wide" onClick={() => inviteToTeam(state, toast, manage ? 'team_tab' : 'cafe_card')}>
+        <button class="btn wide" onClick={() => inviteToTeam(state, toast, manage ? "team_tab" : "cafe_card")}>
           💌 {t('inviteStaff')}
         </button>
       )}
@@ -183,7 +188,7 @@ function Applications() {
 
 // ---------- кофейня ----------
 
-function RoleCard({ onOpenManage }: { onOpenManage: () => void }) {
+function RoleCard() {
   const { state, me, now, send } = useGame();
   const p = getPlayer(state, me.id)!;
   const swap = state.swap;
@@ -233,11 +238,6 @@ function RoleCard({ onOpenManage }: { onOpenManage: () => void }) {
           ))}
         </div>
       )}
-      {p.role === 'manager' && (
-        <button class="btn primary wide" onClick={onOpenManage}>
-          📋 {t('openManage')}
-        </button>
-      )}
     </div>
   );
 }
@@ -263,83 +263,167 @@ function SwapIncoming() {
   );
 }
 
-export function CafeTab({ onStartShift, onOpenManage }: { onStartShift: () => void; onOpenManage: () => void }) {
-  const { state, me, now, send } = useGame();
+/** Меню дня с рецептами — шпаргалка баристы и витрина для всех. */
+function MenuToday({ compact }: { compact?: boolean }) {
+  const { state } = useGame();
+  const menu = todayMenu(state);
+  return (
+    <div class="card">
+      <div class="card-title">{t('menuTodayTitle')}</div>
+      {!compact && <div class="muted small">{t('menuTodayHint')}</div>}
+      <div class="menu-grid">
+        {menu.map((id) => {
+          const d = DRINKS[id];
+          const ok = canMake(state.stock, id);
+          return (
+            <div class={`menu-cell ${ok ? '' : 'short'}`}>
+              <div class="menu-name">{L(d.name)}</div>
+              <div class="menu-recipe">{d.recipe.map((c) => COMPONENTS[c].icon).join('')}</div>
+              <div class="menu-price">{ok ? `${d.price} 🪙` : t('cantMake')}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Стойка — главная вкладка баристы. */
+export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
+  const { state, me, now } = useGame();
   const p = getPlayer(state, me.id)!;
   const counter = counterHolder(state, me.id, now);
   const e = energyNow(p, now);
-  const digest = digestFor(state, me.id);
-  const gate = roomGate(state);
   const active = !!state.activeShifts[me.id];
-  const catHere = !!state.cat && state.cat.hunger > 40 && state.cat.mood > 50;
-  const busy = Object.keys(state.activeShifts).length > 0;
-
+  const catHere = catInCafe(state);
   return (
     <div class="tab">
-      <CafeScene cat={catHere} busy={busy} />
-
-      <SwapIncoming />
-
-      <Applications />
-
-      <TeamCard />
-
-      {digest.length > 0 && (
-        <div class="card digest">
-          <div class="card-title">📬 {t('whileAway')}</div>
-          <ul class="log">
-            {digest.slice(-6).map((d) => (
-              <li>
-                <span class="muted small">{timeAgo(now, d.at)}</span> {describeLog(state, d)}
-              </li>
-            ))}
-          </ul>
-          <button class="btn ghost small" onClick={() => send({ type: 'seen' })}>
-            {t('gotIt')}
+      <div class="card hero">
+        <CafeScene cat={catHere} busy={!!counter || active} />
+        <div class="hero-body">
+          <div class="hero-title">{t('shiftTitle')}</div>
+          <div class="muted small">{t('shiftLength', { n: guestsPerShift(state) })}</div>
+          <button class="btn primary big wide" disabled={!active && (e.energy < 1 || !!counter)} onClick={onStartShift}>
+            {active ? t('continueShift') : t('startShiftCost')}
           </button>
+          {!active && counter && <div class="locked-note center">⏳ {t('counterBusy', { name: counter.name })}</div>}
+          {!active && !counter && e.energy < 1 && e.nextAt && <div class="muted small center">{t('noEnergy', { t: fmtDuration(e.nextAt - now) })}</div>}
+          {state.marketing && <div class="small center">📣 {t('marketingActive', { name: L(MARKETING[state.marketing.id].name), n: state.marketing.shiftsLeft })}</div>}
+          {catHere && <div class="small center">🐈 {t('catInCafe', { name: state.cat!.name })}</div>}
         </div>
-      )}
-
-      <RoleCard onOpenManage={onOpenManage} />
-
-      <div class="card">
-        <Energy />
-        {p.role === 'barista' ? (
-          <>
-            <button class="btn primary big wide" disabled={!active && (e.energy < 1 || !!counter)} onClick={onStartShift}>
-              {active ? t('continueShift') : t('startShift')}
-            </button>
-            {!active && counter && <div class="locked-note center">🔒 {t('counterBusy', { name: counter.name })}</div>}
-            {!active && e.energy < 1 && e.nextAt && <div class="muted small center">{t('noEnergy', { t: fmtDuration(e.nextAt - now) })}</div>}
-            {state.marketing && (
-              <div class="small center">📣 {t('marketingActive', { name: L(MARKETING[state.marketing.id].name), n: state.marketing.shiftsLeft })}</div>
-            )}
-            {catHere && <div class="small center">🐈 {t('catInCafe', { name: state.cat!.name })}</div>}
-          </>
-        ) : null}
       </div>
+      <MenuToday />
+    </div>
+  );
+}
 
-      {!state.room.unlocked ? (
+/** Кофейня — общая информация: цель, лига, цифры, склад, истории, журнал. */
+export function CafeInfoTab() {
+  const { state, me, now } = useGame();
+  const gate = roomGate(state);
+  const rows = leaderboard(state, now);
+  const youAt = rows.findIndex((r) => r.you);
+  const shown = rows.filter((_, i) => i < 3 || Math.abs(i - youAt) <= 1);
+  return (
+    <div class="tab">
+      <CafeScene cat={catInCafe(state)} busy={Object.keys(state.activeShifts).length > 0} />
+
+      {!state.room.unlocked && (
         <div class="card">
           <div class="card-title">🏠 {t('goalsTitle')}</div>
           <Progress label={t('goalStars', { v: gate.stars.toFixed(1), need: gate.needStars })} value={gate.stars / gate.needStars} />
           <Progress label={t('goalShifts', { v: gate.shifts, need: gate.needShifts })} value={gate.shifts / gate.needShifts} />
         </div>
-      ) : null}
+      )}
 
       <div class="card">
-        <div class="card-title">📦 {t('stockShort')}</div>
+        <div class="card-title">🏆 {t('topTitle')}</div>
+        <div class="muted small">{t('topText')}</div>
+        <ol class="top">
+          {shown.map((r) => {
+            const i = rows.indexOf(r);
+            const gap = i > 2 && !shown.includes(rows[i - 1]);
+            return (
+              <>
+                {gap && <li class="top-gap">⋯</li>}
+                <li class={r.you ? 'you' : ''}>
+                  <span class="place">{i + 1}</span>
+                  <span class="grow">
+                    {r.name} {r.you && <span class="tag">{t('you')}</span>}
+                  </span>
+                  <b>{r.points}</b>
+                </li>
+              </>
+            );
+          })}
+        </ol>
+      </div>
+
+      <div class="card">
+        <div class="card-title">{t('statsTitle')}</div>
+        <div class="result-grid">
+          <div>
+            <b>{state.stats.shifts}</b>
+            <span class="muted small">{t('statShifts')}</span>
+          </div>
+          <div>
+            <b>{state.stats.guestsServed}</b>
+            <span class="muted small">{t('statServed')}</span>
+          </div>
+          <div>
+            <b>{state.stats.earned}</b>
+            <span class="muted small">{t('statEarned')}</span>
+          </div>
+        </div>
         <div class="stock-mini">
           {STOCK_ORDER.map((k) => (
-            <span class={state.stock[k] < 5 && (k === 'beans' || k === 'milk') ? 'warn' : ''}>
+            <span class={lowStock(state).includes(k) ? 'warn' : ''}>
               {STOCK_PACKS[k].icon} {state.stock[k]}
             </span>
           ))}
         </div>
       </div>
+
+      <MenuToday compact />
+
+      <div class="card">
+        <div class="card-title">⭐ {t('storiesAll')}</div>
+        {REGULAR_ORDER.map((id) => {
+          const r = REGULARS[id];
+          const prog = state.regulars[id];
+          return (
+            <details class="regular">
+              <summary>
+                {r.avatar} <b>{L(r.name)}</b> <span class="muted small">{prog?.visits ?? 0}/{r.beats.length}</span>
+              </summary>
+              {r.beats.map((b, i) => {
+                const seenBy = prog?.seenBy[i];
+                if (!prog || i >= prog.visits) return <p class="muted small">… {t('storyLocked')}</p>;
+                if (seenBy !== me.id) return <p class="muted small">🔒 {t('storySeenByPartner', { name: playerName(state, seenBy ?? '') })}</p>;
+                return <p class="small">{L(b)}</p>;
+              })}
+            </details>
+          );
+        })}
+      </div>
+
+      <details class="card log-card">
+        <summary class="card-title">📜 {t('logTitle')}</summary>
+        <ul class="log">
+          {[...state.log]
+            .reverse()
+            .slice(0, 30)
+            .map((e) => (
+              <li>
+                <span class="muted small">{timeAgo(now, e.at)}</span> {describeLog(state, e)}
+              </li>
+            ))}
+        </ul>
+      </details>
     </div>
   );
 }
+
 
 function Progress({ label, value }: { label: string; value: number }) {
   return (
@@ -354,7 +438,7 @@ function Progress({ label, value }: { label: string; value: number }) {
 
 // ---------- итог смены ----------
 
-export function ShiftResult({ summary, total, onClose }: { summary: ShiftSummary; total: number; onClose: () => void }) {
+export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { summary: ShiftSummary; total: number; onClose: () => void; onAgain?: () => void; canAgain?: boolean }) {
   const { state, me } = useGame();
   const team = humans(state).filter((h) => h.id !== me.id);
   async function tell() {
@@ -365,6 +449,13 @@ export function ShiftResult({ summary, total, onClose }: { summary: ShiftSummary
   return (
     <div class="tab result">
       <h2>{t('shiftDone')}</h2>
+      <div class="result-stars" aria-label={`${shiftStars(summary, total)}/3`}>
+        {[0, 1, 2].map((i) => (
+          <span class={i < shiftStars(summary, total) ? 'on' : ''} style={{ animationDelay: `${i * 0.15}s` }}>
+            ★
+          </span>
+        ))}
+      </div>
       <div class="big-number">+{summary.earned} 🪙</div>
       <div class="muted center">
         {t('tips')}: {summary.tips} 🪙
@@ -400,8 +491,13 @@ export function ShiftResult({ summary, total, onClose }: { summary: ShiftSummary
         </div>
       )}
       {team.length > 0 && (
-        <button class="btn primary wide" onClick={tell}>
+        <button class="btn wide" onClick={tell}>
           💌 {t('tellTeam')}
+        </button>
+      )}
+      {onAgain && canAgain && (
+        <button class="btn primary wide" onClick={onAgain}>
+          {t('shiftAgain')}
         </button>
       )}
       <button class="btn ghost wide" onClick={onClose}>
@@ -411,17 +507,29 @@ export function ShiftResult({ summary, total, onClose }: { summary: ShiftSummary
   );
 }
 
-// ---------- управление (только управляющий) ----------
+/** Оценка смены: три звезды — все обслужены без ошибок. */
+function shiftStars(s: ShiftSummary, total: number): number {
+  const share = total ? s.served / total : 0;
+  if (share >= 1 && s.wrong === 0) return 3;
+  if (share >= 0.7) return 2;
+  if (share >= 0.4) return 1;
+  return 0;
+}
 
-export function ManageTab() {
+// ---------- дела (только управляющий) ----------
+
+type Seg = 'stock' | 'menu' | 'growth';
+
+/** Дела — главная вкладка управляющего: склад, меню, развитие. */
+export function OfficeTab() {
   const { state, me, send, now } = useGame();
   const p = getPlayer(state, me.id)!;
   const isManager = p.role === 'manager';
-  const manager = playerByRole(state, 'manager');
   const busyBy = isManager ? officeHolder(state, me.id, now) : undefined;
   const mine = !!state.office && state.office.by === me.id && state.office.until > now;
+  const [seg, setSeg] = useState<Seg>('stock');
 
-  // Кабинет занят, пока менеджер держит «Управление» открытым (снимается через 3 мин без действий)
+  // Кабинет занят, пока менеджер держит «Дела» открытыми (снимается через 3 мин без действий)
   useEffect(() => {
     if (!isManager || busyBy || mine) return;
     void send({ type: 'enterOffice' }, { quiet: true });
@@ -433,15 +541,44 @@ export function ManageTab() {
     },
     [isManager],
   );
+
+  const segs: [Seg, string][] = [
+    ['stock', t('segStock')],
+    ['menu', t('segMenu')],
+    ['growth', t('segGrowth')],
+  ];
+  const lowN = lowStock(state).length;
+
+  return (
+    <div class="tab office">
+      <div class="segmented">
+        {segs.map(([id, label]) => (
+          <button class={`seg ${seg === id ? 'on' : ''}`} onClick={() => setSeg(id)}>
+            {label}
+            {id === 'stock' && lowN > 0 && <span class="badge">{lowN}</span>}
+          </button>
+        ))}
+      </div>
+      {busyBy && <div class="locked-note">⏳ {t('officeBusy', { name: busyBy.name })}</div>}
+      {!isManager && <div class="locked-note">🔒 {t('officeOnlyManager')}</div>}
+      <div class="muted small">{t('managerHint')}</div>
+      <fieldset class="plain" disabled={!isManager || !!busyBy}>
+        {seg === 'stock' && <StockSeg />}
+        {seg === 'menu' && <MenuSeg />}
+        {seg === 'growth' && <GrowthSeg />}
+      </fieldset>
+    </div>
+  );
+}
+
+function StockSeg() {
+  const { state, me, send } = useGame();
   const [basket, setBasket] = useState<Partial<Record<StockId, number>>>({});
+  const p = getPlayer(state, me.id)!;
   const disc = Math.round(Math.min(CONFIG.managerDiscountMax, level(p.managerXp) * CONFIG.managerDiscountPerLevel) * 100);
-
-  const basketCost = STOCK_ORDER.reduce((sum, k) => sum + (basket[k] ?? 0) * packPrice(state, me.id, k), 0);
-  const basketCount = STOCK_ORDER.reduce((sum, k) => sum + (basket[k] ?? 0), 0);
-
-  function change(k: StockId, d: number) {
-    setBasket((b) => ({ ...b, [k]: Math.max(0, (b[k] ?? 0) + d) }));
-  }
+  const cost = STOCK_ORDER.reduce((sum, k) => sum + (basket[k] ?? 0) * packPrice(state, me.id, k), 0);
+  const packs = STOCK_ORDER.reduce((sum, k) => sum + (basket[k] ?? 0), 0);
+  const change = (k: StockId, d: number) => setBasket((b) => ({ ...b, [k]: Math.max(0, (b[k] ?? 0) + d) }));
 
   async function go() {
     const r = await send({ type: 'supplyRun', items: basket });
@@ -449,125 +586,175 @@ export function ManageTab() {
   }
 
   return (
-    <div class="tab">
-      {!isManager && manager && (
-        <div class="locked-note">🔒 {manager.isNpc ? t('notYourRoleNpc', { name: manager.name }) : t('notYourRole', { name: manager.name })}</div>
-      )}
-      {isManager && (
-        <div class="card">
-          <Energy />
-          <div class="muted small">{t('managerHint')}</div>
+    <>
+      <div class="card">
+        <div class="row">
+          <div class="card-title grow">🚚 {t('supplyTitle')}</div>
+          {disc > 0 && <span class="tag">−{disc}%</span>}
         </div>
-      )}
-
-      {busyBy && <div class="locked-note">⏳ {t('officeBusy', { name: busyBy.name })}</div>}
-
-      <fieldset class="plain" disabled={!isManager || !!busyBy}>
-        <div class="card">
-          <div class="card-title">
-            🚚 {t('supplyTitle')} {disc > 0 && <span class="muted small">· {t('discount', { p: disc })}</span>}
-          </div>
-          {STOCK_ORDER.map((k) => {
-            const pack = STOCK_PACKS[k];
-            const cap = capacity(state, k);
-            const n = basket[k] ?? 0;
-            const canMore = state.stock[k] + pack.amount * (n + 1) <= cap;
-            return (
-              <div class="row item">
-                <span class="icon">{pack.icon}</span>
-                <div class="grow">
-                  <b>{L(pack.name)}</b>
-                  <div class="muted small">
-                    {state.stock[k]} · {t('capacity', { cap })} · +{pack.amount} / {packPrice(state, me.id, k)} 🪙
-                  </div>
+        <button class="btn wide" onClick={() => setBasket(fillBasket(state, me.id))}>
+          ✨ {t('fillToNorm')}
+        </button>
+        {stockByUrgency(state).map((k) => {
+          const pack = STOCK_PACKS[k];
+          const cap = capacity(state, k);
+          const n = basket[k] ?? 0;
+          const have = state.stock[k];
+          const after = have + pack.amount * n;
+          const left = shiftsLeft(state, k);
+          const canMore = have + pack.amount * (n + 1) <= cap;
+          const note =
+            k === 'catFood' ? t('forHome') : left === Infinity ? t('notUsedToday') : left < 1 ? t('enoughForNone') : t('enoughFor', { n: Math.floor(left) });
+          return (
+            <div class="stock-row">
+              <span class="icon">{pack.icon}</span>
+              <div class="grow">
+                <div class="row">
+                  <b class="grow">{L(pack.name)}</b>
+                  <span class={`small ${left < 1 ? 'danger-text' : 'muted'}`}>{note}</span>
                 </div>
-                <div class="stepper">
-                  <button disabled={n <= 0} onClick={() => change(k, -1)}>
-                    −
-                  </button>
-                  <b>{n}</b>
-                  <button disabled={!canMore} onClick={() => change(k, 1)}>
-                    +
-                  </button>
+                <div class="stock-bar">
+                  <div class="stock-have" style={{ width: `${(have / cap) * 100}%` }} />
+                  <div class="stock-add" style={{ width: `${((after - have) / cap) * 100}%` }} />
+                </div>
+                <div class="muted small num">
+                  {t('packLine', { have: n > 0 ? `${have}→${after}` : have, cap, amount: pack.amount, price: packPrice(state, me.id, k) })}
                 </div>
               </div>
-            );
-          })}
-          <button class="btn primary wide" disabled={!basketCount || state.money < basketCost} onClick={go}>
-            {basketCount ? t('supplyGo', { cost: basketCost }) : t('supplyEmpty')}
+              <div class="stepper">
+                <button disabled={n <= 0} onClick={() => change(k, -1)}>
+                  −
+                </button>
+                <b>{n}</b>
+                <button disabled={!canMore} onClick={() => change(k, 1)}>
+                  +
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {packs > 0 && (
+        <div class="basket-bar">
+          <div class="grow">
+            <b>{t('basketSummary', { n: packs, cost })}</b>
+            {state.money < cost && <div class="small danger-text">{t('lacking', { n: cost - state.money })}</div>}
+          </div>
+          <button class="btn ghost small" onClick={() => setBasket({})}>
+            {t('basketClear')}
+          </button>
+          <button class="btn primary" disabled={state.money < cost} onClick={go}>
+            {t('basketGo')}
           </button>
         </div>
+      )}
+    </>
+  );
+}
 
-        <div class="card">
-          <div class="card-title">☕ {t('menuTitle')}</div>
-          {DRINK_ORDER.map((id) => {
-            const d = DRINKS[id];
-            const has = state.menu.includes(id);
-            return (
-              <div class="row item">
-                <div class="grow">
-                  <b>{L(d.name)}</b> <span class="muted small">· {d.price} 🪙</span>
-                  <div class="small recipe">{d.recipe.map((c) => COMPONENTS[c].icon).join(' ')}</div>
-                </div>
-                {has ? (
-                  <span class="tag">{t('inMenu')}</span>
-                ) : (
+function MenuSeg() {
+  const { state, send } = useGame();
+  const featured = todayMenu(state);
+  const order = [...DRINK_ORDER].sort((a, b) => Number(state.menu.includes(b)) - Number(state.menu.includes(a)));
+  return (
+    <>
+      <div class="card">
+        <div class="card-title">{t('menuTodayCount', { n: state.featured.length, max: CONFIG.menuSlots })}</div>
+        <div class="muted small">{t('menuTodayHint')}</div>
+        <div class="chips">
+          {featured.map((id) => (
+            <span class="chip on">{L(DRINKS[id].name)}</span>
+          ))}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">☕ {t('catalogTitle')}</div>
+        {order.map((id) => {
+          const d = DRINKS[id];
+          const has = state.menu.includes(id);
+          const today = state.featured.includes(id);
+          return (
+            <div class={`row item drink-row ${has ? '' : 'locked-row'}`}>
+              <div class="grow">
+                <b>{L(d.name)}</b> <span class="muted small num">· {d.price} 🪙</span>
+                <div class="recipe">{d.recipe.map((c) => COMPONENTS[c].icon).join(' ')}</div>
+              </div>
+              {has ? (
+                <button class={`chip ${today ? 'on' : ''}`} onClick={() => send({ type: 'toggleFeatured', id })}>
+                  {today ? t('inToday') : t('addToday')}
+                </button>
+              ) : (
+                <div class="buy">
                   <button class="btn small" disabled={state.money < d.unlockCost} onClick={() => send({ type: 'unlockDrink', id })}>
                     {t('unlock')} · {d.unlockCost} 🪙
                   </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div class="card">
-          <div class="card-title">📣 {t('marketingTitle')}</div>
-          {state.marketing && <div class="small">{t('marketingActive', { name: L(MARKETING[state.marketing.id].name), n: state.marketing.shiftsLeft })}</div>}
-          {MARKETING_ORDER.map((id) => {
-            const m = MARKETING[id];
-            return (
-              <div class="row item">
-                <span class="icon">{m.icon}</span>
-                <div class="grow">
-                  <b>{L(m.name)}</b>
-                  <div class="muted small">{L(m.desc)}</div>
+                  {state.money < d.unlockCost && <div class="small muted">{t('lacking', { n: d.unlockCost - state.money })}</div>}
                 </div>
-                <button class="btn small" disabled={!!state.marketing || state.money < m.cost} onClick={() => send({ type: 'launchMarketing', id })}>
-                  {t('energyCost')} · {m.cost} 🪙
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        <div class="card">
-          <div class="card-title">🔧 {t('expansionTitle')}</div>
-          {UPGRADE_ORDER.map((id) => {
-            const u = UPGRADES[id];
-            const has = !!state.upgrades[id];
-            return (
-              <div class="row item">
-                <span class="icon">{u.icon}</span>
-                <div class="grow">
-                  <b>{L(u.name)}</b>
-                  <div class="muted small">{L(u.desc)}</div>
-                </div>
-                {has ? (
-                  <span class="tag">{t('owned')}</span>
-                ) : (
-                  <button class="btn small" disabled={state.money < u.cost} onClick={() => send({ type: 'buyUpgrade', id })}>
-                    {t('energyCost')} · {u.cost} 🪙
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </fieldset>
-    </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
+
+function GrowthSeg() {
+  const { state, send } = useGame();
+  return (
+    <>
+      <div class="card">
+        <div class="card-title">📣 {t('marketingTitle')}</div>
+        {state.marketing && <div class="small">{t('marketingActive', { name: L(MARKETING[state.marketing.id].name), n: state.marketing.shiftsLeft })}</div>}
+        {MARKETING_ORDER.map((id) => {
+          const m = MARKETING[id];
+          return (
+            <div class="row item">
+              <span class="icon">{m.icon}</span>
+              <div class="grow">
+                <b>{L(m.name)}</b>
+                <div class="muted small">{L(m.desc)}</div>
+              </div>
+              <div class="buy">
+                <button class="btn small" disabled={!!state.marketing || state.money < m.cost} onClick={() => send({ type: 'launchMarketing', id })}>
+                  1⚡ · {m.cost} 🪙
+                </button>
+                {!state.marketing && state.money < m.cost && <div class="small muted">{t('lacking', { n: m.cost - state.money })}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div class="card">
+        <div class="card-title">🔧 {t('expansionTitle')}</div>
+        {UPGRADE_ORDER.map((id) => {
+          const u = UPGRADES[id];
+          const has = !!state.upgrades[id];
+          return (
+            <div class="row item">
+              <span class="icon">{u.icon}</span>
+              <div class="grow">
+                <b>{L(u.name)}</b>
+                <div class="muted small">{L(u.desc)}</div>
+              </div>
+              {has ? (
+                <span class="tag">{t('owned')}</span>
+              ) : (
+                <div class="buy">
+                  <button class="btn small" disabled={state.money < u.cost} onClick={() => send({ type: 'buyUpgrade', id })}>
+                    1⚡ · {u.cost} 🪙
+                  </button>
+                  {state.money < u.cost && <div class="small muted">{t('lacking', { n: u.cost - state.money })}</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 
 // ---------- квартира ----------
 
@@ -672,36 +859,12 @@ export function RoomTab() {
 
 // ---------- доска, истории, журнал ----------
 
-function TeamSection() {
-  const { state, me, send, backend, onLeft } = useGame();
-  const isOwner = state.ownerId === me.id;
-
-  async function leave() {
-    if (!(await tg.confirm(t('leaveConfirm', { cafe: state.name })))) return;
-    const r = await send({ type: 'leaveCafe' });
-    if (!r) return;
-    track('partner_left', {});
-    await backend.leave().catch(() => {});
-    onLeft();
-  }
-
-  return (
-    <>
-      <Applications />
-      <TeamCard manage />
-      {!isOwner && (
-        <button class="btn ghost wide danger-text" onClick={leave}>
-          🚪 {t('leaveCafe')}
-        </button>
-      )}
-    </>
-  );
-}
-
-export function BoardTab() {
-  const { state, me, now, send } = useGame();
+/** Команда и общение: заявки, состав, роли, просьбы, доска записок. */
+export function TeamTab() {
+  const { state, me, now, send, backend, onLeft } = useGame();
   const [text, setText] = useState('');
   const [sticker, setSticker] = useState<string | undefined>();
+  const isOwner = state.ownerId === me.id;
 
   async function post() {
     const r = await send({ type: 'postNote', text, sticker });
@@ -716,9 +879,23 @@ export function BoardTab() {
     track('partner_card_sent', { kind, how });
   }
 
+  async function leave() {
+    if (!(await tg.confirm(t('leaveConfirm', { cafe: state.name })))) return;
+    const r = await send({ type: 'leaveCafe' });
+    if (!r) return;
+    track('partner_left', {});
+    await backend.leave().catch(() => {});
+    onLeft();
+  }
+
   return (
     <div class="tab">
-      <TeamSection />
+      <SwapIncoming />
+      <Applications />
+      <TeamCard manage />
+      <RoleCard />
+
+      <div class="section-title">{t('teamTalk')}</div>
       {humans(state).length > 1 && (
         <div class="card">
           <div class="card-title">💌 {t('askTeam')}</div>
@@ -740,6 +917,19 @@ export function BoardTab() {
 
       <div class="card">
         <div class="card-title">📌 {t('boardTitle')}</div>
+        <div class="row">
+          <input class="input grow" value={text} maxLength={CONFIG.noteMaxLen} placeholder={t('notePlaceholder')} onInput={(e) => setText((e.target as HTMLInputElement).value)} />
+          <button class="btn primary" disabled={!text.trim() && !sticker} onClick={post}>
+            {t('send')}
+          </button>
+        </div>
+        <div class="chips stickers">
+          {STICKERS.map((s) => (
+            <button class={`chip sticker-chip ${sticker === s ? 'on' : ''}`} onClick={() => setSticker(sticker === s ? undefined : s)}>
+              {s}
+            </button>
+          ))}
+        </div>
         <div class="notes">
           {state.board.length === 0 && <div class="muted small">{t('boardEmpty')}</div>}
           {[...state.board].reverse().map((n) => (
@@ -753,81 +943,20 @@ export function BoardTab() {
             </div>
           ))}
         </div>
-        <div class="chips">
-          {STICKERS.map((s) => (
-            <button class={`chip sticker-chip ${sticker === s ? 'on' : ''}`} onClick={() => setSticker(sticker === s ? undefined : s)}>
-              {s}
-            </button>
-          ))}
-        </div>
-        <div class="row">
-          <input class="input grow" value={text} maxLength={CONFIG.noteMaxLen} placeholder={t('notePlaceholder')} onInput={(e) => setText((e.target as HTMLInputElement).value)} />
-          <button class="btn primary" disabled={!text.trim() && !sticker} onClick={post}>
-            {t('send')}
-          </button>
-        </div>
       </div>
 
-      <div class="card">
-        <div class="card-title">⭐ {t('storiesAll')}</div>
-        {REGULAR_ORDER.map((id) => {
-          const r = REGULARS[id];
-          const prog = state.regulars[id];
-          return (
-            <details class="regular">
-              <summary>
-                {r.avatar} <b>{L(r.name)}</b> <span class="muted small">{prog?.visits ?? 0}/{r.beats.length}</span>
-              </summary>
-              {r.beats.map((b, i) => {
-                const seenBy = prog?.seenBy[i];
-                if (!prog || i >= prog.visits) return <p class="muted small">… {t('storyLocked')}</p>;
-                if (seenBy !== me.id) return <p class="muted small">🔒 {t('storySeenByPartner', { name: playerName(state, seenBy ?? '') })}</p>;
-                return <p class="small">{L(b)}</p>;
-              })}
-            </details>
-          );
-        })}
-      </div>
-
-      <div class="card">
-        <div class="card-title">📜 {t('logTitle')}</div>
-        <ul class="log">
-          {[...state.log]
-            .reverse()
-            .slice(0, 30)
-            .map((e) => (
-              <li>
-                <span class="muted small">{timeAgo(now, e.at)}</span> {describeLog(state, e)}
-              </li>
-            ))}
-        </ul>
-      </div>
+      {!isOwner && (
+        <button class="link danger-text center leave-link" onClick={leave}>
+          {t('leaveCafe')}
+        </button>
+      )}
     </div>
   );
 }
 
-// ---------- рейтинг ----------
-
-export function TopTab() {
-  const { state, now } = useGame();
-  const rows = leaderboard(state, now);
-  return (
-    <div class="tab">
-      <div class="card">
-        <div class="card-title">🏆 {t('topTitle')}</div>
-        <p class="muted small">{t('topText')}</p>
-        <ol class="top">
-          {rows.map((r, i) => (
-            <li class={r.you ? 'you' : ''}>
-              <span class="place">{i + 1}</span>
-              <span class="grow">
-                {r.name} {r.you && <span class="tag">{t('you')}</span>}
-              </span>
-              <b>{r.points}</b> <span class="muted small">{t('points')}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </div>
-  );
+/** Сколько всего ждёт игрока во вкладке «Команда». */
+export function teamBadge(s: CafeState, meId: string): number {
+  const apps = s.applications.filter((a) => !a.approvals.includes(meId)).length;
+  return apps + (s.swap && s.swap.with === meId ? 1 : 0);
 }
+
