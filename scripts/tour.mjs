@@ -36,14 +36,14 @@ async function playShift(page, label, shots = true) {
     if (await page.locator('.result').count()) break;
     const dirty = page.locator('.table-spot.dirty');
     if (await dirty.count()) await dirty.first().click({ timeout: 300 }).catch(() => {});
-    const ready = page.locator('.seat.ready');
+    const ready = page.locator('.serve-btn:not([disabled])');
     if (await ready.count()) {
       if (shots && n === 1) await shot(page, `${label}-ready`);
       await ready.first().click({ timeout: 300 }).catch(() => {});
       n++;
       continue;
     }
-    const seat = page.locator('.seat:not(.empty)').first();
+    const seat = page.locator('.guest.target').first();
     if (await seat.count()) {
       const todo = await seat.locator('.ri:not(.done)').allInnerTexts().catch(() => []);
       if (todo.length) await page.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click({ timeout: 300 }).catch(() => {});
@@ -82,7 +82,7 @@ await a.getByRole('button', { name: /Встать за стойку/ }).click();
 await a.waitForTimeout(6000);
 // собрать часть заказа и снять разрез чашки
 for (let k = 0; k < 2; k++) {
-  const todo = await a.locator('.seat:not(.empty)').first().locator('.ri:not(.done)').allInnerTexts();
+  const todo = await a.locator('.guest.target').first().locator('.ri:not(.done)').allInnerTexts();
   if (todo.length) await a.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click();
 }
 await a.waitForTimeout(700);

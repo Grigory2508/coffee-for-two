@@ -47,13 +47,13 @@ async function finishShift(page, label) {
     if (await page.locator('.result').count()) break;
     const dirty = page.locator('.table-spot.dirty');
     if (await dirty.count()) await dirty.first().click({ timeout: 300 }).catch(() => {});
-    const ready = page.locator('.seat.ready');
+    const ready = page.locator('.serve-btn:not([disabled])');
     if (await ready.count()) {
       await ready.first().click({ timeout: 300 }).catch(() => {});
       if (++served === 1) await shot(page, `${label}-shift`);
       continue;
     }
-    const seat = page.locator('.seat:not(.empty)').first();
+    const seat = page.locator('.guest.target').first();
     if (await seat.count()) {
       const todo = await seat.locator('.ri:not(.done)').allInnerTexts().catch(() => []);
       if (todo.length) await page.locator('.station', { hasText: ICON_TO_STATION[todo[0].trim()] }).first().click({ timeout: 300 }).catch(() => {});

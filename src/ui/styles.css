@@ -786,7 +786,6 @@ main {
 
 /* станции в зоне большого пальца */
 .stations {
-  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -835,7 +834,7 @@ main {
 
 .station-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
   gap: 6px;
 }
 
@@ -1804,4 +1803,134 @@ button.hud-chip {
 .menu-cell .cup-section {
   align-self: center;
   margin: 2px 0;
+}
+
+
+/* ---------- смена v3: гости, одна чашка на прилавке ---------- */
+.shift,
+.shift button {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.guests {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.guest {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 150px;
+  padding: 8px 4px;
+  border-radius: 16px;
+  border: 2px solid transparent;
+  background: var(--paper);
+  cursor: pointer;
+  animation: pop-in 0.25s ease-out;
+}
+
+.guest.empty {
+  background: transparent;
+  border: 2px dashed var(--line);
+  justify-content: center;
+  cursor: default;
+  animation: none;
+}
+
+.guest.target {
+  border-color: var(--caramel);
+  background: #fff6ea;
+}
+
+.guest.target::after {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top-color: var(--caramel);
+  border-bottom: 0;
+}
+
+.guest.angry .guest-face span {
+  animation: shake 0.5s ease-in-out infinite;
+}
+
+.guest.bounce {
+  animation: shake 0.3s ease-in-out;
+}
+
+.counter-bar {
+  margin-top: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 18px;
+  background: linear-gradient(#8a5a3b 0 8px, #f3e3cf 8px);
+  border: 1px solid #d8b991;
+}
+
+.counter-bar.ready {
+  box-shadow: 0 0 0 3px rgba(76, 154, 110, 0.35);
+}
+
+.counter-bar .popup {
+  top: 4px;
+  left: 45px;
+}
+
+.counter-cup {
+  flex: none;
+  padding-top: 6px;
+}
+
+.counter-cup.bounce {
+  animation: shake 0.3s ease-in-out;
+}
+
+.counter-info {
+  flex: 1;
+  min-width: 0;
+  padding-top: 6px;
+}
+
+.counter-for {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.counter-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.serve-btn {
+  min-width: 108px;
+  min-height: 52px;
+  font-size: 17px;
+}
+
+.pour-btn {
+  min-height: 34px;
+  padding: 4px;
+}
+
+.station-time {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
 }
