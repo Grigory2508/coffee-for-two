@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import {
   CONFIG,
   DECOR,
@@ -21,7 +21,8 @@ import {
   type DecorSlot,
   type StockId,
 } from '../core/content';
-import { capacity, digestFor, energyNow, getPlayer, level, packPrice, partnerOf, playerByRole, rating, roomGate, type ShiftSummary } from '../core/engine';
+import { capacity, counterHolder, digestFor, energyNow, freeRoles, getPlayer, humans, level, officeHolder, packPrice, playerByRole, rating, roleCount, roomGate, type ShiftSummary } from '../core/engine';
+import type { CafeState } from '../core/types';
 import { leaderboard } from '../core/leaderboard';
 import { fmtDuration, L, t } from '../i18n';
 import { inviteLink } from '../net/backend';
@@ -78,21 +79,127 @@ export async function sharePartnerInvite(code: string, key: string, toast: (s: s
   if (how === 'clipboard') toast(t('inviteCopied'));
 }
 
+// ---------- команда ----------
+
+function staffStatus(s: CafeState, id: string, now: number): string | null {
+  const plan = s.activeShifts[id];
+  if (plan && now - plan.startedAt < CONFIG.shiftDurationMs + 60_000) return t('staffOnCounter');
+  if (s.office && s.office.by === id && s.office.until > now) return t('staffInOffice');
+  return null;
+}
+
+async function inviteToTeam(state: CafeState, toast: (s: string) => void, source: string) {
+  const url = inviteLink(state.code, state.inviteKey);
+  const how = await tg.share(url, t('inviteStaffText', { cafe: state.name }));
+  track('invite_sent', { source, how });
+  if (how === 'clipboard') toast(t('inviteCopied'));
+}
+
+/** Состав команды: кто в какой роли и чем занят. */
+function TeamCard({ manage }: { manage?: boolean }) {
+  const { state, me, now, send, toast } = useGame();
+  const people = state.players;
+  const hs = humans(state);
+  const isOwner = state.ownerId === me.id;
+  const canInvite = freeRoles(state).length > 0;
+
+  async function remove(id: string, name: string) {
+    if (!(await tg.confirm(t('removeConfirm', { name })))) return;
+    const r = await send({ type: 'removeStaff', id });
+    if (r) track('staff_removed', {});
+  }
+
+  return (
+    <div class="card team-card">
+      <div class="card-title">
+        👥 {t('teamTitle')} <span class="muted small">· {t('teamCount', { n: hs.length, max: CONFIG.maxStaff })}</span>
+      </div>
+      {people.map((p) => {
+        const status = staffStatus(state, p.id, now);
+        return (
+          <div class="row staff-row">
+            <span class="avatar small-avatar">{p.isNpc ? '🧓' : ROLES[p.role].icon}</span>
+            <div class="grow">
+              <b>{p.name}</b>
+              {p.id === me.id && <span class="muted small"> · {t('you')}</span>}
+              {p.id === state.ownerId && <span class="tag"> {t('ownerBadge')}</span>}
+              <div class="muted small">
+                {roleName(p.role)}
+                {p.isNpc ? ` · ${t('npcHint')}` : status ? ` · ${status}` : p.id !== me.id ? ` · ${now - p.lastSeenAt < 60_000 ? t('justNow') : timeAgo(now, p.lastSeenAt)}` : ''}
+              </div>
+            </div>
+            {manage && isOwner && !p.isNpc && p.id !== me.id && (
+              <button class="btn small ghost danger-text" onClick={() => remove(p.id, p.name)}>
+                {t('removeStaff')}
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {canInvite && (
+        <button class="btn primary wide" onClick={() => inviteToTeam(state, toast, manage ? 'team_tab' : 'cafe_card')}>
+          💌 {t('inviteStaff')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Заявки в команду: каждый сотрудник одобряет или отклоняет. */
+function Applications() {
+  const { state, me, send } = useGame();
+  const hs = humans(state);
+  if (!state.applications.length) return null;
+  return (
+    <div class="card swap-card">
+      <div class="card-title">📝 {t('applicationsTitle')}</div>
+      {state.applications.map((a) => {
+        const approved = a.approvals.includes(me.id);
+        const n = a.approvals.filter((x) => hs.some((h) => h.id === x)).length;
+        return (
+          <div class="app-row">
+            <div>
+              {ROLES[a.role].icon} {t('applicationLine', { name: a.name, role: roleName(a.role).toLowerCase() })}
+            </div>
+            <div class="muted small">{t('approvals', { n, m: hs.length })}</div>
+            <div class="row gap">
+              {approved ? (
+                <span class="tag">✓ {t('youApproved')}</span>
+              ) : (
+                <button class="btn small primary" onClick={() => send({ type: 'approveApplication', id: a.id }).then((r) => r && track('application_approved', {}))}>
+                  {t('approve')}
+                </button>
+              )}
+              <button class="btn small ghost" onClick={() => send({ type: 'rejectApplication', id: a.id })}>
+                {t('reject')}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ---------- кофейня ----------
 
 function RoleCard({ onOpenManage }: { onOpenManage: () => void }) {
-  const { state, me, send, toast } = useGame();
+  const { state, me, now, send } = useGame();
   const p = getPlayer(state, me.id)!;
-  const partner = partnerOf(state, me.id);
   const swap = state.swap;
-  const myActive = !!state.activeShifts[me.id];
+  const busy = !!staffStatus(state, me.id, now);
+  const hs = humans(state);
+  const other = otherRole(p.role);
+  const canSwitch = freeRoles(state).includes(other) && !(roleCount(state, p.role) === 1 && hs.length > 1);
+  const swapTargets = state.players.filter((x) => x.id !== me.id && x.role === other);
 
-  async function askPartner() {
-    const r = await send({ type: 'proposeSwap' });
-    if (r && partner && !partner.isNpc) {
+  async function propose(withId: string) {
+    const target = getPlayer(state, withId);
+    const r = await send({ type: 'proposeSwap', with: withId });
+    if (r && target && !target.isNpc) {
       const how = await tg.share(inviteLink(state.code, state.inviteKey), t('swapAsk'));
       track('partner_card_sent', { kind: 'swap', how });
-    } else if (r) toast(t('log_swap_accepted', { who: '', role: roleName(getPlayer(r.state, me.id)!.role).toLowerCase() }).trim());
+    }
   }
 
   return (
@@ -106,16 +213,25 @@ function RoleCard({ onOpenManage }: { onOpenManage: () => void }) {
       <div class="muted small">{p.role === 'barista' ? t('baristaHint') : t('managerHint')}</div>
       {swap && swap.by === me.id && (
         <div class="row swap-row">
-          <span class="small grow">⏳ {t('swapWaiting', { name: partner?.name ?? '' })}</span>
+          <span class="small grow">⏳ {t('swapWaiting', { name: getPlayer(state, swap.with)?.name ?? '' })}</span>
           <button class="btn small ghost" onClick={() => send({ type: 'declineSwap' })}>
             {t('swapCancel')}
           </button>
         </div>
       )}
-      {!swap && (
-        <button class="btn ghost small" disabled={myActive} onClick={askPartner}>
-          🔄 {partner?.isNpc ? t('swapNpc') : t('swapPropose')}
-        </button>
+      {!swap && (canSwitch || swapTargets.length > 0) && (
+        <div class="chips">
+          {canSwitch && (
+            <button class="chip" disabled={busy} onClick={() => send({ type: 'switchRole', role: other })}>
+              ➡️ {t('switchRoleTitle')}: {roleName(other).toLowerCase()}
+            </button>
+          )}
+          {swapTargets.map((x) => (
+            <button class="chip" disabled={busy} onClick={() => propose(x.id)}>
+              🔄 {x.isNpc ? t('swapNpc') : `${t('swapWith')}: ${x.name}`}
+            </button>
+          ))}
+        </div>
       )}
       {p.role === 'manager' && (
         <button class="btn primary wide" onClick={onOpenManage}>
@@ -129,7 +245,7 @@ function RoleCard({ onOpenManage }: { onOpenManage: () => void }) {
 function SwapIncoming() {
   const { state, me, send } = useGame();
   const swap = state.swap;
-  if (!swap || swap.by === me.id) return null;
+  if (!swap || swap.with !== me.id) return null;
   const by = getPlayer(state, swap.by);
   const mine = getPlayer(state, me.id)!;
   return (
@@ -148,9 +264,9 @@ function SwapIncoming() {
 }
 
 export function CafeTab({ onStartShift, onOpenManage }: { onStartShift: () => void; onOpenManage: () => void }) {
-  const { state, me, now, send, toast } = useGame();
+  const { state, me, now, send } = useGame();
   const p = getPlayer(state, me.id)!;
-  const partner = partnerOf(state, me.id);
+  const counter = counterHolder(state, me.id, now);
   const e = energyNow(p, now);
   const digest = digestFor(state, me.id);
   const gate = roomGate(state);
@@ -164,33 +280,9 @@ export function CafeTab({ onStartShift, onOpenManage }: { onStartShift: () => vo
 
       <SwapIncoming />
 
-      <div class="card partner-card">
-        {partner?.isNpc ? (
-          <>
-            <div class="row">
-              <span class="avatar">🧓</span>
-              <div class="grow">
-                <b>{t('npcPartner', { name: partner.name })}</b>
-                <div class="muted small">
-                  {ROLES[partner.role].icon} {roleName(partner.role)} · {t('npcHint')}
-                </div>
-              </div>
-            </div>
-            <button class="btn primary wide" onClick={() => sharePartnerInvite(state.code, state.inviteKey, toast, 'cafe_card')}>
-              💌 {t('invitePartner')}
-            </button>
-          </>
-        ) : partner ? (
-          <div class="row">
-            <span class="avatar">{partner.role === 'barista' ? '🧑‍🍳' : '🧑‍💼'}</span>
-            <div class="grow">
-              <div class="muted small">{t('partner')}</div>
-              <b>{t('partnerRole', { name: partner.name, role: roleName(partner.role).toLowerCase() })}</b>
-            </div>
-            <span class="muted small">{timeAgo(now, partner.lastSeenAt)}</span>
-          </div>
-        ) : null}
-      </div>
+      <Applications />
+
+      <TeamCard />
 
       {digest.length > 0 && (
         <div class="card digest">
@@ -214,9 +306,10 @@ export function CafeTab({ onStartShift, onOpenManage }: { onStartShift: () => vo
         <Energy />
         {p.role === 'barista' ? (
           <>
-            <button class="btn primary big wide" disabled={!active && e.energy < 1} onClick={onStartShift}>
+            <button class="btn primary big wide" disabled={!active && (e.energy < 1 || !!counter)} onClick={onStartShift}>
               {active ? t('continueShift') : t('startShift')}
             </button>
+            {!active && counter && <div class="locked-note center">🔒 {t('counterBusy', { name: counter.name })}</div>}
             {!active && e.energy < 1 && e.nextAt && <div class="muted small center">{t('noEnergy', { t: fmtDuration(e.nextAt - now) })}</div>}
             {state.marketing && (
               <div class="small center">📣 {t('marketingActive', { name: L(MARKETING[state.marketing.id].name), n: state.marketing.shiftsLeft })}</div>
@@ -263,7 +356,7 @@ function Progress({ label, value }: { label: string; value: number }) {
 
 export function ShiftResult({ summary, total, onClose }: { summary: ShiftSummary; total: number; onClose: () => void }) {
   const { state, me } = useGame();
-  const partner = partnerOf(state, me.id);
+  const team = humans(state).filter((h) => h.id !== me.id);
   async function tell() {
     const text = t('tellPartnerText', { earned: summary.earned, served: summary.served, total });
     const how = await tg.share(inviteLink(state.code, state.inviteKey), text);
@@ -303,12 +396,12 @@ export function ShiftResult({ summary, total, onClose }: { summary: ShiftSummary
               </div>
             </div>
           ))}
-          {partner && !partner.isNpc && <div class="muted small">{t('storyPartnerHint')}</div>}
+          {team.length > 0 && <div class="muted small">{t('storyPartnerHint')}</div>}
         </div>
       )}
-      {partner && !partner.isNpc && (
+      {team.length > 0 && (
         <button class="btn primary wide" onClick={tell}>
-          💌 {t('tellPartner')}
+          💌 {t('tellTeam')}
         </button>
       )}
       <button class="btn ghost wide" onClick={onClose}>
@@ -321,10 +414,25 @@ export function ShiftResult({ summary, total, onClose }: { summary: ShiftSummary
 // ---------- управление (только управляющий) ----------
 
 export function ManageTab() {
-  const { state, me, send } = useGame();
+  const { state, me, send, now } = useGame();
   const p = getPlayer(state, me.id)!;
   const isManager = p.role === 'manager';
   const manager = playerByRole(state, 'manager');
+  const busyBy = isManager ? officeHolder(state, me.id, now) : undefined;
+  const mine = !!state.office && state.office.by === me.id && state.office.until > now;
+
+  // Кабинет занят, пока менеджер держит «Управление» открытым (снимается через 3 мин без действий)
+  useEffect(() => {
+    if (!isManager || busyBy || mine) return;
+    void send({ type: 'enterOffice' }, { quiet: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isManager, busyBy?.id]);
+  useEffect(
+    () => () => {
+      if (isManager) void send({ type: 'leaveOffice' }, { quiet: true });
+    },
+    [isManager],
+  );
   const [basket, setBasket] = useState<Partial<Record<StockId, number>>>({});
   const disc = Math.round(Math.min(CONFIG.managerDiscountMax, level(p.managerXp) * CONFIG.managerDiscountPerLevel) * 100);
 
@@ -352,7 +460,9 @@ export function ManageTab() {
         </div>
       )}
 
-      <fieldset class="plain" disabled={!isManager}>
+      {busyBy && <div class="locked-note">⏳ {t('officeBusy', { name: busyBy.name })}</div>}
+
+      <fieldset class="plain" disabled={!isManager || !!busyBy}>
         <div class="card">
           <div class="card-title">
             🚚 {t('supplyTitle')} {disc > 0 && <span class="muted small">· {t('discount', { p: disc })}</span>}
@@ -562,20 +672,9 @@ export function RoomTab() {
 
 // ---------- доска, истории, журнал ----------
 
-function PartnerSection() {
-  const { state, me, send, backend, toast, onLeft } = useGame();
-  const partner = partnerOf(state, me.id);
+function TeamSection() {
+  const { state, me, send, backend, onLeft } = useGame();
   const isOwner = state.ownerId === me.id;
-  if (!partner) return null;
-
-  async function replace() {
-    if (!(await tg.confirm(t('replaceConfirm', { name: partner!.name })))) return;
-    const r = await send({ type: 'replacePartner' });
-    if (r) {
-      track('partner_replaced', {});
-      await sharePartnerInvite(r.state.code, r.state.inviteKey, toast, 'replace');
-    }
-  }
 
   async function leave() {
     if (!(await tg.confirm(t('leaveConfirm', { cafe: state.name })))) return;
@@ -587,29 +686,15 @@ function PartnerSection() {
   }
 
   return (
-    <div class="card">
-      <div class="card-title">🤝 {t('partnerTitle')}</div>
-      <div class="row">
-        <span class="grow">
-          {partner.isNpc ? '🧓' : '🧑'} <b>{partner.name}</b> · {roleName(partner.role).toLowerCase()}
-          {partner.id === state.ownerId && <span class="tag"> {t('ownerBadge')}</span>}
-        </span>
-      </div>
-      {partner.isNpc ? (
-        <button class="btn primary wide" onClick={() => sharePartnerInvite(state.code, state.inviteKey, toast, 'board')}>
-          💌 {t('invitePartner')}
-        </button>
-      ) : isOwner ? (
-        <button class="btn ghost wide" onClick={replace}>
-          🔁 {t('replacePartner')}
-        </button>
-      ) : null}
+    <>
+      <Applications />
+      <TeamCard manage />
       {!isOwner && (
         <button class="btn ghost wide danger-text" onClick={leave}>
           🚪 {t('leaveCafe')}
         </button>
       )}
-    </div>
+    </>
   );
 }
 
@@ -617,7 +702,6 @@ export function BoardTab() {
   const { state, me, now, send } = useGame();
   const [text, setText] = useState('');
   const [sticker, setSticker] = useState<string | undefined>();
-  const partner = partnerOf(state, me.id);
 
   async function post() {
     const r = await send({ type: 'postNote', text, sticker });
@@ -634,10 +718,10 @@ export function BoardTab() {
 
   return (
     <div class="tab">
-      <PartnerSection />
-      {partner && !partner.isNpc && (
+      <TeamSection />
+      {humans(state).length > 1 && (
         <div class="card">
-          <div class="card-title">💌 {t('askPartner')}</div>
+          <div class="card-title">💌 {t('askTeam')}</div>
           <div class="chips">
             <button class="chip" onClick={() => ask(t('askShift'), 'shift')}>
               {t('askShift')}

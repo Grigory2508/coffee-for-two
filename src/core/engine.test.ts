@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, DRINKS, type Role } from './content';
-import { apply, createCafe, digestFor, energyNow, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, weekId } from './engine';
+import { apply, createCafe, digestFor, energyNow, freeRoles, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, roleCount, weekId } from './engine';
 import type { CafeState, Command, GuestResult } from './types';
 
 const T0 = Date.UTC(2026, 10, 2, 9, 0, 0); // понедельник
@@ -14,8 +14,13 @@ function run(s: CafeState, actor: string, cmd: Command, at: number) {
   return apply(s, { actor, cmd, at });
 }
 
-function join(s: CafeState, id = 'b', at = T0) {
-  return run(s, id, { type: 'join', player: { id, name: id.toUpperCase() }, key: s.inviteKey }, at).state;
+/** Заявка + одобрение всеми текущими сотрудниками. */
+function join(s: CafeState, id = 'b', at = T0, role?: Role) {
+  const free = freeRoles(s);
+  const r: Role = role ?? (free.includes('manager') && roleCount(s, 'manager') === 0 ? 'manager' : free.includes('barista') && roleCount(s, 'barista') === 0 ? 'barista' : free[0]);
+  s = run(s, id, { type: 'apply', player: { id, name: id.toUpperCase() }, key: s.inviteKey, role: r }, at).state;
+  for (const h of s.players.filter((p) => !p.isNpc)) s = run(s, h.id, { type: 'approveApplication', id }, at).state;
+  return s;
 }
 
 function perfectShift(s: CafeState, actor: string, at: number) {
@@ -33,18 +38,84 @@ describe('создание и вступление', () => {
     expect(s.ownerId).toBe('a');
   });
 
-  it('напарник по приглашению получает свободную роль; третий не войдёт', () => {
-    const s = join(fresh('barista'));
+  it('новичок попадает в команду, только когда одобрили все', () => {
+    let s = join(fresh('barista'), 'b'); // b — менеджер, сосед ушёл
     expect(getPlayer(s, 'b')!.role).toBe('manager');
-    expect(() => run(s, 'c', { type: 'join', player: { id: 'c', name: 'C' }, key: s.inviteKey }, T0)).toThrow('cafe_full');
+    expect(s.players.some((p) => p.isNpc)).toBe(false);
+    s = run(s, 'c', { type: 'apply', player: { id: 'c', name: 'C' }, key: s.inviteKey, role: 'barista' }, T0).state;
+    expect(getPlayer(s, 'c')).toBeUndefined();
+    s = run(s, 'a', { type: 'approveApplication', id: 'c' }, T0).state;
+    expect(getPlayer(s, 'c')).toBeUndefined(); // b ещё не одобрил
+    s = run(s, 'b', { type: 'approveApplication', id: 'c' }, T0).state;
+    expect(getPlayer(s, 'c')!.role).toBe('barista');
   });
 
-  it('без верного ключа приглашения войти нельзя', () => {
-    expect(() => run(fresh(), 'b', { type: 'join', player: { id: 'b', name: 'B' }, key: 'WRONG' }, T0)).toThrow('invite_expired');
+  it('один отказ снимает заявку; заявка сгорает через 48 ч', () => {
+    let s = join(fresh('barista'));
+    s = run(s, 'c', { type: 'apply', player: { id: 'c', name: 'C' }, key: s.inviteKey, role: 'barista' }, T0).state;
+    s = run(s, 'b', { type: 'rejectApplication', id: 'c' }, T0).state;
+    expect(s.applications).toHaveLength(0);
+    s = run(s, 'd', { type: 'apply', player: { id: 'd', name: 'D' }, key: s.inviteKey, role: 'barista' }, T0).state;
+    s = run(s, 'a', { type: 'seen' }, T0 + 49 * H).state;
+    expect(s.applications).toHaveLength(0);
+  });
+
+  it('лимиты: до 5 человек, до 4 барист, до 2 менеджеров', () => {
+    let s = join(fresh('barista'), 'b', T0, 'manager');
+    s = join(s, 'c', T0, 'manager');
+    expect(() => run(s, 'd', { type: 'apply', player: { id: 'd', name: 'D' }, key: s.inviteKey, role: 'manager' }, T0)).toThrow('role_full');
+    s = join(s, 'd', T0, 'barista');
+    s = join(s, 'e', T0, 'barista');
+    expect(s.players.filter((p) => !p.isNpc)).toHaveLength(5);
+    expect(() => run(s, 'f', { type: 'apply', player: { id: 'f', name: 'F' }, key: s.inviteKey, role: 'barista' }, T0)).toThrow('cafe_full');
+    expect(freeRoles(s)).toEqual([]);
+  });
+
+  it('без верного ключа приглашения заявку не подать', () => {
+    expect(() => run(fresh(), 'b', { type: 'apply', player: { id: 'b', name: 'B' }, key: 'WRONG', role: 'manager' }, T0)).toThrow('invite_expired');
   });
 
   it('посторонний не может отдавать команды', () => {
     expect(() => run(fresh(), 'x', { type: 'startShift' }, T0)).toThrow('not_member');
+  });
+});
+
+describe('касса, кабинет, смена роли', () => {
+  it('касса одна: пока один бариста на смене, второй не может встать', () => {
+    let s = join(join(fresh('barista')), 'c', T0, 'barista');
+    s = run(s, 'a', { type: 'startShift' }, T0).state;
+    expect(() => run(s, 'c', { type: 'startShift' }, T0 + 1000)).toThrow('counter_busy');
+    // смена кончилась — касса свободна
+    expect(run(s, 'c', { type: 'startShift' }, T0 + CONFIG.shiftDurationMs + 61_000).shiftPlan).toBeTruthy();
+  });
+
+  it('кабинет один: второй менеджер ждёт 3 минуты или выхода первого', () => {
+    let s = join(join(fresh('barista')), 'c', T0, 'manager'); // b и c — менеджеры
+    s = run(s, 'b', { type: 'enterOffice' }, T0).state;
+    expect(() => run(s, 'c', { type: 'enterOffice' }, T0 + 1000)).toThrow('office_busy');
+    expect(() => run(s, 'c', { type: 'unlockDrink', id: 'latte' }, T0 + 1000)).toThrow('office_busy');
+    s = run(s, 'b', { type: 'leaveOffice' }, T0 + 2000).state;
+    s = run(s, 'c', { type: 'enterOffice' }, T0 + 3000).state;
+    expect(s.office!.by).toBe('c');
+    expect(() => run(s, 'b', { type: 'enterOffice' }, T0 + 4000)).toThrow('office_busy');
+    expect(run(s, 'b', { type: 'enterOffice' }, T0 + 3000 + CONFIG.officeHoldMs + 1).state.office!.by).toBe('b');
+  });
+
+  it('смена роли: можно в свободную, нельзя оставить роль без людей', () => {
+    let s = join(fresh('barista')); // a — бариста, b — менеджер
+    expect(() => run(s, 'a', { type: 'switchRole', role: 'manager' }, T0)).toThrow('last_in_role');
+    s = join(s, 'c', T0, 'barista');
+    s = run(s, 'a', { type: 'switchRole', role: 'manager' }, T0).state;
+    expect(getPlayer(s, 'a')!.role).toBe('manager');
+    s = join(s, 'd', T0, 'barista');
+    // менеджеров уже двое (a, b) — третий нельзя
+    expect(() => run(s, 'd', { type: 'switchRole', role: 'manager' }, T0)).toThrow('role_full');
+  });
+
+  it('один в кофейне меняет роль сам — сосед занимает освободившуюся', () => {
+    const s = run(fresh('barista'), 'a', { type: 'switchRole', role: 'manager' }, T0).state;
+    expect(getPlayer(s, 'a')!.role).toBe('manager');
+    expect(getPlayer(s, NPC_ID)!.role).toBe('barista');
   });
 });
 
@@ -182,17 +253,12 @@ describe('напарник: NPC, замена, выход', () => {
     expect(s.stock.beans).toBeGreaterThan(5);
   });
 
-  it('создатель меняет напарника — старое приглашение сгорает', () => {
+  it('создатель может убрать сотрудника; освободившуюся единственную роль занимает сосед', () => {
     let s = join(fresh('barista'));
-    const oldKey = s.inviteKey;
-    expect(() => run(s, 'b', { type: 'replacePartner' }, T0)).toThrow('owner_only');
-    s = run(s, 'a', { type: 'replacePartner' }, T0).state;
+    expect(() => run(s, 'b', { type: 'removeStaff', id: 'a' }, T0)).toThrow('owner_only');
+    s = run(s, 'a', { type: 'removeStaff', id: 'b' }, T0).state;
     expect(getPlayer(s, 'b')).toBeUndefined();
     expect(getPlayer(s, NPC_ID)!.role).toBe('manager');
-    expect(s.inviteKey).not.toBe(oldKey);
-    expect(() => run(s, 'b', { type: 'join', player: { id: 'b', name: 'B' }, key: oldKey }, T0)).toThrow('invite_expired');
-    s = join(s, 'c');
-    expect(getPlayer(s, 'c')!.role).toBe('manager');
   });
 
   it('напарник может выйти, создатель — нет', () => {

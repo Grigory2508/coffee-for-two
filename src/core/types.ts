@@ -1,11 +1,12 @@
 import type { DecorSlot, DrinkId, MarketingId, RegularId, Role, StockId, UpgradeId } from './content.ts';
+export type { Role };
 
 export type PlayerId = string;
 
 export interface Player {
   id: PlayerId;
   name: string;
-  slot: 0 | 1;
+  slot: number;
   isNpc: boolean;
   role: Role;
   lastActionAt: number; // последнее действие (не просто визит) — для подмены NPC
@@ -43,6 +44,14 @@ export interface GuestResult {
   waitMs: number; // сколько гость ждал до подачи
 }
 
+export interface Application {
+  id: PlayerId;
+  name: string;
+  role: Role;
+  at: number;
+  approvals: PlayerId[];
+}
+
 export interface Note {
   id: string;
   author: PlayerId;
@@ -65,6 +74,11 @@ export type LogKind =
   | 'swap_declined'
   | 'partner_left'
   | 'partner_replaced'
+  | 'application_new'
+  | 'application_rejected'
+  | 'staff_joined'
+  | 'staff_removed'
+  | 'role_switched'
   | 'upgrade_bought'
   | 'drink_unlocked'
   | 'decor_bought'
@@ -105,7 +119,9 @@ export interface CafeState {
   ratingRecent: number[]; // удовлетворённость 0..1 последних гостей
   regulars: Partial<Record<RegularId, { visits: number; seenBy: PlayerId[] }>>;
   activeShifts: Record<PlayerId, ShiftPlan>;
-  swap: null | { by: PlayerId; at: number };
+  swap: null | { by: PlayerId; with: PlayerId; at: number };
+  office: null | { by: PlayerId; until: number };
+  applications: Application[];
   marketing: null | { id: MarketingId; guests: number; tipBonus: number; shiftsLeft: number };
   room: {
     unlocked: boolean;
@@ -129,16 +145,23 @@ export interface CafeState {
 
 export type Command =
   | { type: 'join'; player: { id: PlayerId; name: string }; key?: string }
+  | { type: 'apply'; player: { id: PlayerId; name: string }; key: string; role: Role }
+  | { type: 'cancelApplication' }
+  | { type: 'approveApplication'; id: PlayerId }
+  | { type: 'rejectApplication'; id: PlayerId }
+  | { type: 'switchRole'; role: Role }
+  | { type: 'removeStaff'; id: PlayerId }
+  | { type: 'enterOffice' }
+  | { type: 'leaveOffice' }
   | { type: 'rename'; name: string }
   | { type: 'startShift' }
   | { type: 'finishShift'; results: GuestResult[]; cleanliness?: number }
   | { type: 'abandonShift' }
   | { type: 'supplyRun'; items: Partial<Record<StockId, number>> }
   | { type: 'launchMarketing'; id: MarketingId }
-  | { type: 'proposeSwap' }
+  | { type: 'proposeSwap'; with?: PlayerId }
   | { type: 'acceptSwap' }
   | { type: 'declineSwap' }
-  | { type: 'replacePartner' }
   | { type: 'leaveCafe' }
   | { type: 'buyUpgrade'; id: UpgradeId }
   | { type: 'unlockDrink'; id: DrinkId }

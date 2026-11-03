@@ -79,6 +79,46 @@ export function playerByRole(s: CafeState, role: Role): Player | undefined {
   return s.players.find((p) => p.role === role);
 }
 
+export const ROLE_LIST: Role[] = ['barista', 'manager'];
+
+export function roleCount(s: CafeState, role: Role): number {
+  return humans(s).filter((p) => p.role === role).length;
+}
+
+/** Роли, в которые сейчас можно прийти или перейти (с учётом лимитов и общего штата). */
+export function freeRoles(s: CafeState): Role[] {
+  if (humans(s).length >= CONFIG.maxStaff) return [];
+  return ROLE_LIST.filter((r) => roleCount(s, r) < CONFIG.roleMax[r]);
+}
+
+function shiftLive(plan: ShiftPlan | undefined, at: number): boolean {
+  return !!plan && at - plan.startedAt < CONFIG.shiftDurationMs + 60_000;
+}
+
+/** Кто сейчас стоит за кассой (кроме actor). */
+export function counterHolder(s: CafeState, actor: PlayerId, at: number): Player | undefined {
+  const id = Object.keys(s.activeShifts).find((pid) => pid !== actor && shiftLive(s.activeShifts[pid], at));
+  return id ? getPlayer(s, id) : undefined;
+}
+
+/** Кто сейчас занимает кабинет менеджера (кроме actor). */
+export function officeHolder(s: CafeState, actor: PlayerId, at: number): Player | undefined {
+  if (!s.office || s.office.by === actor || s.office.until <= at) return undefined;
+  return getPlayer(s, s.office.by);
+}
+
+/** Сосед-NPC есть, только пока в какой-то роли нет ни одного человека. */
+function syncNpc(s: CafeState, at: number) {
+  const empty = ROLE_LIST.filter((r) => roleCount(s, r) === 0);
+  const idx = s.players.findIndex((p) => p.isNpc);
+  if (empty.length === 1) {
+    if (idx >= 0) s.players[idx].role = empty[0];
+    else s.players.push(newPlayer(NPC_ID, s.npcName, s.players.length, true, empty[0], at));
+  } else if (idx >= 0 && empty.length === 0) {
+    s.players.splice(idx, 1);
+  }
+}
+
 export function newInviteKey(seed: string): string {
   const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   let h = hashString(seed);
@@ -189,7 +229,7 @@ export function catInCafe(s: CafeState): boolean {
 
 // ---------- создание ----------
 
-function newPlayer(id: PlayerId, name: string, slot: 0 | 1, isNpc: boolean, role: Role, now: number): Player {
+function newPlayer(id: PlayerId, name: string, slot: number, isNpc: boolean, role: Role, now: number): Player {
   return {
     id,
     name,
@@ -237,6 +277,8 @@ export function createCafe(opts: {
     regulars: {},
     activeShifts: {},
     swap: null,
+    office: null,
+    applications: [],
     marketing: null,
     room: { unlocked: false, owned: [], placed: {} },
     cat: null,
@@ -261,8 +303,11 @@ export function npcCoveredRoles(s: CafeState, now: number): Role[] {
   if (npc) roles.push(npc.role);
   const hs = humans(s);
   const someoneActive = hs.some((h) => now - h.lastActionAt < CONFIG.npcCoverActiveWindowMs);
-  if (someoneActive && hs.length === 2) {
-    for (const h of hs) if (now - h.lastActionAt >= CONFIG.npcCoverAfterMs) roles.push(h.role);
+  if (someoneActive && hs.length >= 2) {
+    for (const role of ROLE_LIST) {
+      const inRole = hs.filter((h) => h.role === role);
+      if (inRole.length && inRole.every((h) => now - h.lastActionAt >= CONFIG.npcCoverAfterMs) && !roles.includes(role)) roles.push(role);
+    }
   }
   return roles;
 }
@@ -347,6 +392,10 @@ export function advanceMut(s: CafeState, now: number) {
   }
 
   if (s.swap && now - s.swap.at > CONFIG.swapExpiresMs) s.swap = null;
+  if (s.office && s.office.until <= now) s.office = null;
+  if (s.applications.some((a) => now - a.at > CONFIG.applicationExpiresMs)) {
+    s.applications = s.applications.filter((a) => now - a.at <= CONFIG.applicationExpiresMs);
+  }
 
   const wk = weekId(now);
   if (wk !== s.week.id) s.week = { id: wk, points: 0 };
@@ -419,8 +468,9 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
     if (Number.isInteger(r.i) && r.i >= 0 && r.i < plan.guests.length && !byIdx.has(r.i)) byIdx.set(r.i, r);
   }
   const today = dayKey(at);
-  const bothActive = humans(s).length === 2 && humans(s).every((h) => h.id === actor || h.days.includes(today));
-  const coop = bothActive ? 1.2 : 1;
+  // Командный бонус: в этот день работали хотя бы двое
+  const activeToday = humans(s).filter((h) => h.id === actor || h.days.includes(today)).length;
+  const coop = activeToday >= 2 ? 1.2 : 1;
   const sum: ShiftSummary = { earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0, cleanliness };
 
   plan.guests.forEach((g, i) => {
@@ -498,14 +548,47 @@ function requireRole(p: Player, role: Role) {
   if (p.role !== role) throw new GameError('wrong_role', { role });
 }
 
-/** Заменить человека на NPC с той же ролью (выход или смена напарника). */
-function replaceWithNpc(s: CafeState, playerId: PlayerId, at: number) {
+/** Убрать сотрудника (выход или увольнение). Освободившуюся роль при необходимости закрывает сосед. */
+function removePlayer(s: CafeState, playerId: PlayerId, at: number) {
   const idx = s.players.findIndex((p) => p.id === playerId);
   if (idx < 0) return;
-  const old = s.players[idx];
-  s.players.splice(idx, 1, newPlayer(NPC_ID, s.npcName, old.slot, true, old.role, at));
+  s.players.splice(idx, 1);
   delete s.activeShifts[playerId];
-  s.swap = null;
+  if (s.office?.by === playerId) s.office = null;
+  if (s.swap && (s.swap.by === playerId || s.swap.with === playerId)) s.swap = null;
+  for (const a of s.applications) a.approvals = a.approvals.filter((x) => x !== playerId);
+  syncNpc(s, at);
+  // Если ушёл последний, кто не одобрил заявку, — она проходит
+  for (const a of [...s.applications]) tryFinalize(s, a.id, at);
+}
+
+function checkCanAdd(s: CafeState, role: Role) {
+  if (humans(s).length >= CONFIG.maxStaff) throw new GameError('cafe_full', { max: CONFIG.maxStaff });
+  if (roleCount(s, role) >= CONFIG.roleMax[role]) throw new GameError('role_full', { role, max: CONFIG.roleMax[role] });
+}
+
+/** Принять заявку, если её одобрили все текущие сотрудники. Возвращает true, если человек принят. */
+function tryFinalize(s: CafeState, appId: PlayerId, at: number): boolean {
+  const app = s.applications.find((a) => a.id === appId);
+  if (!app) return false;
+  const all = humans(s).every((h) => app.approvals.includes(h.id));
+  if (!all) return false;
+  try {
+    checkCanAdd(s, app.role);
+  } catch {
+    return false;
+  }
+  s.applications = s.applications.filter((a) => a.id !== appId);
+  s.players.push(newPlayer(app.id, app.name, s.players.length, false, app.role, at));
+  syncNpc(s, at);
+  addLog(s, at, app.id, 'staff_joined', { name: app.name, role: app.role });
+  return true;
+}
+
+function holdOffice(s: CafeState, actor: PlayerId, at: number) {
+  const holder = officeHolder(s, actor, at);
+  if (holder) throw new GameError('office_busy', { name: holder.name });
+  s.office = { by: actor, until: at + CONFIG.officeHoldMs };
 }
 
 const MANAGER_COMMANDS = new Set(['supplyRun', 'unlockDrink', 'buyUpgrade', 'launchMarketing']);
@@ -518,25 +601,46 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
   const out: ApplyResult = { state: s };
 
   if (cmd.type === 'join') {
+    // Повторный вход уже принятого сотрудника (обновляем имя). Новые люди приходят через заявку.
     const existing = getPlayer(s, cmd.player.id);
-    if (existing) {
-      existing.name = cmd.player.name || existing.name;
-    } else {
-      if (cmd.key !== s.inviteKey) throw new GameError('invite_expired');
-      const npcIdx = s.players.findIndex((p) => p.isNpc);
-      if (npcIdx < 0) throw new GameError('cafe_full');
-      const npc = s.players[npcIdx];
-      const np = newPlayer(cmd.player.id, cmd.player.name, npc.slot, false, npc.role, at);
-      s.players.splice(npcIdx, 1, np);
-      addLog(s, at, np.id, 'partner_joined', { name: np.name, role: np.role });
+    if (!existing || existing.isNpc) throw new GameError('apply_required');
+    existing.name = cmd.player.name || existing.name;
+    bump(s, at);
+    return out;
+  }
+
+  if (cmd.type === 'apply') {
+    if (getPlayer(s, cmd.player.id)) throw new GameError('already_member');
+    if (cmd.key !== s.inviteKey) throw new GameError('invite_expired');
+    if (!ROLE_LIST.includes(cmd.role)) throw new GameError('bad_item');
+    const existingApp = s.applications.find((a) => a.id === cmd.player.id);
+    if (existingApp) {
+      // Передумал с ролью — заявка начинается заново
+      s.applications = s.applications.filter((a) => a.id !== cmd.player.id);
+    } else if (s.applications.length >= CONFIG.maxPendingApplications) {
+      throw new GameError('too_many_applications');
     }
+    checkCanAdd(s, cmd.role);
+    const name = (cmd.player.name || '').trim().slice(0, 30) || '?';
+    s.applications.push({ id: cmd.player.id, name, role: cmd.role, at, approvals: [] });
+    addLog(s, at, 'system', 'application_new', { name, role: cmd.role });
+    bump(s, at);
+    return out;
+  }
+
+  if (cmd.type === 'cancelApplication') {
+    if (!s.applications.some((a) => a.id === actor)) throw new GameError('no_application');
+    s.applications = s.applications.filter((a) => a.id !== actor);
     bump(s, at);
     return out;
   }
 
   const p = getPlayer(s, actor);
   if (!p || p.isNpc) throw new GameError('not_member');
-  if (MANAGER_COMMANDS.has(cmd.type)) requireRole(p, 'manager');
+  if (MANAGER_COMMANDS.has(cmd.type)) {
+    requireRole(p, 'manager');
+    holdOffice(s, actor, at); // кабинет один: пока там другой менеджер, войти нельзя
+  }
   if (BARISTA_COMMANDS.has(cmd.type)) requireRole(p, 'barista');
   if (cmd.type !== 'seen') p.lastActionAt = at;
 
@@ -554,6 +658,8 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
         out.shiftPlan = prev; // возобновляем незавершённую смену без повторной траты сил
         return out;
       }
+      const busy = counterHolder(s, actor, at);
+      if (busy) throw new GameError('counter_busy', { name: busy.name });
       spendEnergy(p, at);
       const plan = makeShiftPlan(s, actor, at);
       s.activeShifts[actor] = plan;
@@ -638,58 +744,98 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       break;
     }
     case 'proposeSwap': {
-      if (s.activeShifts[actor]) throw new GameError('shift_in_progress');
-      const partner = partnerOf(s, actor);
-      if (!partner) throw new GameError('no_partner');
-      if (partner.isNpc) {
+      if (s.activeShifts[actor] || s.office?.by === actor) throw new GameError('shift_in_progress');
+      const others = s.players.filter((x) => x.id !== actor && x.role !== p.role);
+      const target = cmd.with ? others.find((x) => x.id === cmd.with) : others.find((x) => x.isNpc) ?? (others.length === 1 ? others[0] : undefined);
+      if (!target) throw new GameError('no_partner');
+      if (target.isNpc) {
         // Сосед всегда согласен
-        [p.role, partner.role] = [partner.role, p.role];
+        [p.role, target.role] = [target.role, p.role];
         s.swap = null;
+        syncNpc(s, at);
         addLog(s, at, actor, 'swap_accepted', { role: p.role });
         break;
       }
-      if (s.activeShifts[partner.id]) throw new GameError('shift_in_progress');
+      if (shiftLive(s.activeShifts[target.id], at) || s.office?.by === target.id) throw new GameError('shift_in_progress');
       if (s.swap?.by === actor) throw new GameError('swap_pending');
-      s.swap = { by: actor, at };
-      addLog(s, at, actor, 'swap_proposed', {});
+      s.swap = { by: actor, with: target.id, at };
+      addLog(s, at, actor, 'swap_proposed', { name: target.name });
       break;
     }
     case 'acceptSwap': {
-      if (!s.swap || s.swap.by === actor) throw new GameError('no_swap');
+      if (!s.swap || s.swap.with !== actor) throw new GameError('no_swap');
       const proposer = getPlayer(s, s.swap.by);
-      if (!proposer || proposer.isNpc) {
+      if (!proposer || proposer.isNpc || proposer.role === p.role) {
         s.swap = null;
         throw new GameError('no_swap');
       }
-      if (s.activeShifts[actor] || s.activeShifts[proposer.id]) throw new GameError('shift_in_progress');
+      if (shiftLive(s.activeShifts[actor], at) || shiftLive(s.activeShifts[proposer.id], at)) throw new GameError('shift_in_progress');
       [p.role, proposer.role] = [proposer.role, p.role];
       s.swap = null;
+      if (s.office && (s.office.by === actor || s.office.by === proposer.id)) s.office = null;
       addLog(s, at, actor, 'swap_accepted', { role: p.role });
       break;
     }
     case 'declineSwap': {
-      if (!s.swap) throw new GameError('no_swap');
+      if (!s.swap || (s.swap.by !== actor && s.swap.with !== actor)) throw new GameError('no_swap');
       const by = s.swap.by;
       s.swap = null;
       addLog(s, at, actor, 'swap_declined', { cancelledBy: by === actor ? 1 : 0 });
       break;
     }
-    case 'replacePartner': {
-      // Только создатель кофейни. Место напарника переходит соседу, старые приглашения сгорают.
+    case 'switchRole': {
+      if (!ROLE_LIST.includes(cmd.role) || cmd.role === p.role) throw new GameError('bad_item');
+      if (shiftLive(s.activeShifts[actor], at) || s.office?.by === actor) throw new GameError('shift_in_progress');
+      if (roleCount(s, cmd.role) >= CONFIG.roleMax[cmd.role]) throw new GameError('role_full', { role: cmd.role, max: CONFIG.roleMax[cmd.role] });
+      // Минимум: в каждой роли хотя бы один человек (если ты здесь не один — тогда роль займёт сосед)
+      if (roleCount(s, p.role) === 1 && humans(s).length > 1) throw new GameError('last_in_role', { role: p.role });
+      p.role = cmd.role;
+      if (s.swap && (s.swap.by === actor || s.swap.with === actor)) s.swap = null;
+      syncNpc(s, at);
+      addLog(s, at, actor, 'role_switched', { role: p.role });
+      break;
+    }
+    case 'approveApplication': {
+      const app = s.applications.find((a) => a.id === cmd.id);
+      if (!app) throw new GameError('no_application');
+      if (!app.approvals.includes(actor)) app.approvals.push(actor);
+      if (!tryFinalize(s, app.id, at)) {
+        // все одобрили, но мест уже нет — сообщаем
+        if (humans(s).every((h) => app.approvals.includes(h.id))) checkCanAdd(s, app.role);
+      }
+      break;
+    }
+    case 'rejectApplication': {
+      const app = s.applications.find((a) => a.id === cmd.id);
+      if (!app) throw new GameError('no_application');
+      s.applications = s.applications.filter((a) => a.id !== cmd.id);
+      addLog(s, at, actor, 'application_rejected', { name: app.name });
+      break;
+    }
+    case 'removeStaff': {
       if (actor !== s.ownerId) throw new GameError('owner_only');
-      const partner = partnerOf(s, actor);
-      if (!partner || partner.isNpc) throw new GameError('no_partner');
-      const name = partner.name;
-      replaceWithNpc(s, partner.id, at);
-      s.inviteKey = newInviteKey(`${s.code}:${at}:${s.version}`);
-      addLog(s, at, actor, 'partner_replaced', { name });
+      const target = getPlayer(s, cmd.id);
+      if (!target || target.isNpc || target.id === actor) throw new GameError('no_partner');
+      removePlayer(s, target.id, at);
+      addLog(s, at, actor, 'staff_removed', { name: target.name });
       break;
     }
     case 'leaveCafe': {
       if (actor === s.ownerId) throw new GameError('owner_cannot_leave');
       const name = p.name;
-      replaceWithNpc(s, actor, at);
+      removePlayer(s, actor, at);
       addLog(s, at, 'system', 'partner_left', { name });
+      bump(s, at);
+      return out;
+    }
+    case 'enterOffice': {
+      requireRole(p, 'manager');
+      holdOffice(s, actor, at);
+      bump(s, at);
+      return out;
+    }
+    case 'leaveOffice': {
+      if (s.office?.by === actor) s.office = null;
       bump(s, at);
       return out;
     }
@@ -795,6 +941,12 @@ export function migrate(s: CafeState): CafeState {
   if (!x.inviteKey) x.inviteKey = newInviteKey(`${x.code}:migrate`);
   if (!x.npcName) x.npcName = x.players.find((p) => p.isNpc)?.name ?? 'Сосед Артур';
   if (x.swap === undefined) x.swap = null;
+  if (x.swap && !(x.swap as { with?: string }).with) {
+    const other = x.players.find((p) => p.id !== x.swap!.by);
+    x.swap = other ? { ...x.swap, with: other.id } : null;
+  }
+  if ((x as Partial<CafeState>).office === undefined) x.office = null;
+  if (!Array.isArray((x as Partial<CafeState>).applications)) x.applications = [];
   if (x.marketing === undefined) x.marketing = null;
   x.players.forEach((p, i) => {
     if (!p.role) p.role = i === 0 ? 'barista' : 'manager';

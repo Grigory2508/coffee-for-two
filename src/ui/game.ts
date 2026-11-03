@@ -13,7 +13,7 @@ export interface Game {
   now: number;
   backend: Backend;
   /** Отправить команду. Ошибки показываются тостом; возвращает null при ошибке. */
-  send(cmd: Command): Promise<ApplyResult | null>;
+  send(cmd: Command, opts?: { quiet?: boolean }): Promise<ApplyResult | null>;
   toast(text: string): void;
   /** Игрок вышел из кофейни — вернуться на стартовый экран. */
   onLeft(): void;

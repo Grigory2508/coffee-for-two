@@ -63,10 +63,16 @@ function describe(s: CafeState, e: LogEntry, lang: Lang): string | null {
       return ru ? `${who} предлагает поменяться ролями — зайди и ответь 🔄` : `${who} suggests swapping roles — open the café to answer 🔄`;
     case 'swap_accepted':
       return ru ? 'Вы поменялись ролями 🔄' : 'You swapped roles 🔄';
-    case 'partner_left':
-      return ru ? `${p.name} вышел(ла) из кофейни, его место занял сосед` : `${p.name} left the café; the neighbour took the spot`;
     case 'partner_replaced':
       return ru ? 'Тебя убрали из кофейни' : 'You were removed from the café';
+    case 'staff_joined':
+      return ru ? `${p.name} теперь в команде! 🎉` : `${p.name} joined the team! 🎉`;
+    case 'staff_removed':
+      return ru ? `${who} убрал(а) из команды: ${p.name}` : `${who} removed ${p.name} from the team`;
+    case 'role_switched':
+      return ru ? `${who} сменил(а) роль 🔄` : `${who} switched roles 🔄`;
+    case 'partner_left':
+      return ru ? `${p.name} ушёл(ла) из кофейни` : `${p.name} left the café`;
     case 'note':
       return `${who}: ${p.sticker ?? ''} ${p.text ?? ''}`.trim();
     case 'room_unlocked':

@@ -27,6 +27,12 @@ export const CONFIG = {
   npcRestockBelow: 12,
   npcMarkup: 1.2,
   swapExpiresMs: 48 * 3600_000,
+  // Команда
+  maxStaff: 5,
+  roleMax: { barista: 4, manager: 2 } as Record<Role, number>,
+  applicationExpiresMs: 48 * 3600_000,
+  maxPendingApplications: 3,
+  officeHoldMs: 3 * 60_000,
   shiftDurationMs: 75_000,
   basePatienceMs: 16_000,
   startMoney: 300,

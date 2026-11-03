@@ -1107,3 +1107,46 @@ fieldset.plain {
   gap: 10px;
 }
 .danger-text { color: var(--danger); }
+
+/* ---------- команда ---------- */
+.role-card:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.staff-row {
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+.staff-row:first-of-type {
+  border-top: 0;
+}
+
+.small-avatar {
+  font-size: 22px;
+  width: 30px;
+  text-align: center;
+}
+
+.team-card .btn.wide {
+  margin-top: 8px;
+}
+
+.app-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.app-row:first-of-type {
+  border-top: 0;
+}
+
+.team-mini {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

@@ -1,5 +1,6 @@
 import type { Role } from '../core/content';
 import { apply, createCafe, migrate, type ApplyResult } from '../core/engine';
+import { peekOf, type CafePeek } from '../core/peek';
 import { GameError, type CafeState, type Command } from '../core/types';
 import { now } from '../platform/clock';
 import { config } from '../platform/config';
@@ -10,7 +11,11 @@ export interface Backend {
   readonly mode: 'local' | 'remote';
   load(): Promise<CafeState | null>;
   create(cafeName: string, npcName: string, role: Role): Promise<CafeState>;
-  join(invite: Invite): Promise<CafeState>;
+  /** Подать заявку в кофейню с выбранной ролью. */
+  apply(invite: Invite, role: Role): Promise<void>;
+  cancelApplication(invite: Invite): Promise<void>;
+  /** Войти в кофейню, где игрок уже сотрудник (после одобрения заявки). */
+  enter(invite: Invite): Promise<CafeState | null>;
   /** Короткая информация о кофейне для экрана приглашения. */
   peek(invite: Invite): Promise<CafePeek | null>;
   send(cmd: Command): Promise<ApplyResult>;
@@ -23,26 +28,26 @@ export interface Invite {
   key: string;
 }
 
-export interface CafePeek {
-  name: string;
-  owner: string;
-  full: boolean;
-  isMember: boolean;
-  expired: boolean;
-  role: Role | null; // роль, которую получит вошедший
-}
+export type { CafePeek } from '../core/peek';
 
-export function peekOf(s: CafeState, meId: string, key: string): CafePeek {
-  const humansIn = s.players.filter((p) => !p.isNpc);
-  return {
-    name: s.name,
-    owner: humansIn[0]?.name ?? '',
-    full: humansIn.length >= 2,
-    isMember: s.players.some((p) => p.id === meId),
-    expired: !!s.inviteKey && key !== s.inviteKey,
-    role: s.players.find((p) => p.isNpc)?.role ?? null,
-  };
-}
+/** Заявка, ожидающая одобрения, — помним между запусками. */
+export const pendingInvite = {
+  get(): string | null {
+    try {
+      return localStorage.getItem('cft:pending');
+    } catch {
+      return null;
+    }
+  },
+  set(param: string | null) {
+    try {
+      if (param) localStorage.setItem('cft:pending', param);
+      else localStorage.removeItem('cft:pending');
+    } catch {
+      /* ignore */
+    }
+  },
+};
 
 const ALPHABET ='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -118,13 +123,25 @@ export class LocalBackend implements Backend {
     return s;
   }
 
-  async join(inv: Invite) {
+  async apply(inv: Invite, role: Role) {
     const s = this.read(inv.code);
     if (!s) throw new GameError('cafe_not_found');
-    const r = apply(s, { actor: this.me.id, at: now(), cmd: { type: 'join', player: { id: this.me.id, name: this.me.name }, key: inv.key } });
+    const r = apply(s, { actor: this.me.id, at: now(), cmd: { type: 'apply', player: { id: this.me.id, name: this.me.name }, key: inv.key, role } });
     this.write(r.state);
+  }
+
+  async cancelApplication(inv: Invite) {
+    const s = this.read(inv.code);
+    if (!s) return;
+    const r = apply(s, { actor: this.me.id, at: now(), cmd: { type: 'cancelApplication' } });
+    this.write(r.state);
+  }
+
+  async enter(inv: Invite) {
+    const s = this.read(inv.code);
+    if (!s || !s.players.some((p) => p.id === this.me.id)) return null;
     localStorage.setItem(memberKey(this.me.id), inv.code);
-    return r.state;
+    return s;
   }
 
   async peek(inv: Invite) {
@@ -194,10 +211,16 @@ export class RemoteBackend implements Backend {
     return r.state;
   }
 
-  async join(inv: Invite) {
-    const r = await this.call<{ state: CafeState }>({ op: 'join', code: inv.code, key: inv.key });
-    this.last = r.state;
-    return r.state;
+  async apply(inv: Invite, role: Role) {
+    await this.call({ op: 'apply', code: inv.code, key: inv.key, role });
+  }
+
+  async cancelApplication(inv: Invite) {
+    await this.call({ op: 'cancel', code: inv.code });
+  }
+
+  async enter(_inv: Invite) {
+    return this.load();
   }
 
   async peek(inv: Invite) {

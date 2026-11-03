@@ -1,13 +1,16 @@
 // API игры: все действия игроков проходят здесь. Клиент шлёт команды, сервер применяет
 // ту же логику, что и клиент (src/core → _shared/core, копируется `npm run sync-server`).
 import { apply, createCafe, migrate } from '../_shared/core/engine.ts';
-import { GameError, type CafeState, type Command } from '../_shared/core/types.ts';
+import { GameError, type CafeState, type Command, type Player } from '../_shared/core/types.ts';
+import { peekOf } from '../_shared/core/peek.ts';
 import type { Role } from '../_shared/core/content.ts';
 import { insert, remove, select, update } from '../_shared/db.ts';
-import { verifyInitData } from '../_shared/telegram.ts';
+import { botApi, verifyInitData } from '../_shared/telegram.ts';
 
 const BOT_TOKEN = Deno.env.get('BOT_TOKEN')!;
 const ALLOW_DEBUG = Deno.env.get('ALLOW_DEBUG') === '1';
+const BOT = Deno.env.get('BOT_USERNAME') ?? '';
+const APP = Deno.env.get('APP_SHORTNAME') ?? 'play';
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 const cors = {
@@ -52,6 +55,68 @@ async function getCafe(code: string) {
 }
 
 const tgId = (playerId: string) => (/^tg\d+$/.test(playerId) ? Number(playerId.slice(2)) : null);
+
+interface LangRow {
+  user_id: number;
+  lang: string;
+}
+
+const isRu = (lang: string) => /^(ru|uk|be|kk|hy|ka|uz|ky|az)/.test(lang);
+
+/** Языки сотрудников кофейни (для сообщений бота). */
+async function staffLangs(code: string) {
+  const rows = await select<LangRow>('members', `code=eq.${encodeURIComponent(code)}&select=user_id,lang`);
+  return new Map(rows.map((r) => [r.user_id, r.lang]));
+}
+
+/** Сообщение от бота с кнопкой «Открыть кофейню». Ошибки (нет разрешения писать и т.п.) не мешают игре. */
+async function notify(userId: number, lang: string, ru: string, en: string, param = 'bot') {
+  if (!BOT) return;
+  const r = isRu(lang);
+  await botApi(BOT_TOKEN, 'sendMessage', {
+    chat_id: userId,
+    text: r ? ru : en,
+    reply_markup: { inline_keyboard: [[{ text: r ? '☕ Открыть кофейню' : '☕ Open the café', url: `https://t.me/${BOT}/${APP}?startapp=${param}` }]] },
+  }).catch(() => undefined);
+}
+
+const roleRu = { barista: 'бариста', manager: 'менеджер' } as const;
+const roleEn = { barista: 'barista', manager: 'manager' } as const;
+
+/** Пост-обработка команды: членство и уведомления о составе команды. */
+async function afterCommand(cmd: Command, before: CafeState, after: CafeState, actorName: string) {
+  const humansOf = (s: CafeState) => s.players.filter((p) => !p.isNpc);
+  const was = humansOf(before);
+  const now = humansOf(after);
+  const langs = await staffLangs(after.code);
+  const fallback = langs.get(tgId(after.ownerId) ?? 0) ?? 'ru';
+  // Новые сотрудники: членство + «тебя приняли»
+  for (const p of now.filter((x) => !was.some((y) => y.id === x.id))) {
+    const id = tgId(p.id);
+    if (!id) continue;
+    await insert('members', { user_id: id, code: after.code, first_name: p.name, lang: fallback }, true);
+    await notify(
+      id,
+      fallback,
+      `Тебя приняли в кофейню «${after.name}» ☕ Твоя роль — ${roleRu[p.role]}.`,
+      `You're in! Welcome to “${after.name}” ☕ Your role: ${roleEn[p.role]}.`,
+    );
+  }
+  // Ушедшие: снимаем членство
+  for (const p of was.filter((x) => !now.some((y) => y.id === x.id))) {
+    const id = tgId(p.id);
+    if (!id) continue;
+    await remove('members', `user_id=eq.${id}&code=eq.${after.code}`);
+    if (cmd.type === 'removeStaff') {
+      await notify(id, langs.get(id) ?? fallback, `Тебя убрали из команды кофейни «${after.name}». Можно открыть свою.`, `You were removed from “${after.name}”. You can open your own café.`);
+    }
+  }
+  // Отклонённая заявка
+  if (cmd.type === 'rejectApplication') {
+    const id = tgId(cmd.id);
+    if (id) await notify(id, fallback, `Заявку в кофейню «${after.name}» отклонил(а) ${actorName}.`, `${actorName} declined your application to “${after.name}”.`);
+  }
+}
 
 function cafeColumns(s: CafeState) {
   return { state: s, version: s.version, name: s.name, week_id: s.week.id, week_points: s.week.points, updated_at: new Date().toISOString() };
@@ -124,29 +189,45 @@ Deno.serve(async (req) => {
       case 'peek': {
         const row = await getCafe(String(body.code ?? ''));
         if (!row) return json({ peek: null });
-        const humans = row.state.players.filter((p) => !p.isNpc);
-        return json({
-          peek: {
-            name: row.state.name,
-            owner: humans[0]?.name ?? '',
-            full: humans.length >= 2,
-            isMember: row.state.players.some((p) => p.id === actor),
-            expired: String(body.key ?? '') !== row.state.inviteKey,
-            role: row.state.players.find((p) => p.isNpc)?.role ?? null,
-          },
-        });
+        const peek = peekOf(row.state, actor, String(body.key ?? ''));
+        // Принятому сотруднику сразу оформляем членство (на случай, если пост-обработка не успела)
+        if (peek.isMember && !(await getMember(user.id))) {
+          await insert('members', { user_id: user.id, code: row.code, first_name: user.first_name, lang: user.language_code ?? 'ru' }, true);
+        }
+        return json({ peek });
       }
-      case 'join': {
+      case 'apply': {
         const code = String(body.code ?? '');
         const m = await getMember(user.id);
         if (m && m.code !== code) {
-          // Членство в кофейне, из которой игрока уже убрали, не мешает войти в новую
+          // Членство в кофейне, из которой игрока уже убрали, не мешает подать заявку в новую
           const old = await getCafe(m.code);
           if (old && old.state.players.some((p) => p.id === actor)) return fail('already_member');
+          await remove('members', `user_id=eq.${user.id}`);
         }
-        const r = await applyCommand(code, actor, { type: 'join', player: { id: actor, name: user.first_name || 'Игрок' }, key: String(body.key ?? '') });
-        await insert('members', { user_id: user.id, code, first_name: user.first_name, lang: user.language_code ?? 'ru' }, true);
-        return json({ state: r.state });
+        const role: Role = body.role === 'manager' ? 'manager' : 'barista';
+        const name = user.first_name || 'Игрок';
+        const r = await applyCommand(code, actor, { type: 'apply', player: { id: actor, name }, key: String(body.key ?? ''), role });
+        // Сразу пишем всем сотрудникам — заявка ждёт их одобрения
+        const langs = await staffLangs(code);
+        for (const p of r.state.players.filter((x: Player) => !x.isNpc)) {
+          const id = tgId(p.id);
+          if (!id) continue;
+          await notify(
+            id,
+            langs.get(id) ?? 'ru',
+            `📝 ${name} хочет работать в «${r.state.name}» (${roleRu[role]}). Зайди и одобри или отклони заявку.`,
+            `📝 ${name} wants to join “${r.state.name}” as ${roleEn[role]}. Open the café to approve or decline.`,
+          );
+        }
+        return json({ ok: true });
+      }
+      case 'cancel': {
+        const code = String(body.code ?? '');
+        await applyCommand(code, actor, { type: 'cancelApplication' }).catch((e) => {
+          if (!(e instanceof GameError)) throw e;
+        });
+        return json({ ok: true });
       }
       case 'cmd': {
         const cmd = body.cmd as Command;
@@ -157,13 +238,8 @@ Deno.serve(async (req) => {
         if (!m) return fail('no_cafe');
         const before = await getCafe(m.code);
         const r = await applyCommand(m.code, actor, cmd);
-        // Выход и смена напарника: снимаем членство у того, кого больше нет в кофейне
-        if (cmd.type === 'leaveCafe' || cmd.type === 'replacePartner') {
-          const gone = (before?.state.players ?? []).filter((p) => !p.isNpc && !r.state.players.some((q) => q.id === p.id));
-          for (const g of gone) {
-            const id = tgId(g.id);
-            if (id) await remove('members', `user_id=eq.${id}`);
-          }
+        if (before && ['approveApplication', 'rejectApplication', 'removeStaff', 'leaveCafe'].includes(cmd.type)) {
+          await afterCommand(cmd, before.state, r.state, user.first_name || '');
         }
         return json(r);
       }

@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { advance, type ShiftSummary } from '../core/engine';
 import { GameError, type CafeState, type Command, type GuestResult, type ShiftPlan } from '../core/types';
 import { L, lang, setLang, t, type Lang } from '../i18n';
-import { makeBackend, parseInviteParam, type CafePeek, type Invite } from '../net/backend';
-import { ROLES, type Role } from '../core/content';
+import { makeBackend, parseInviteParam, pendingInvite, type CafePeek, type Invite } from '../net/backend';
+import { CONFIG, ROLES, type Role } from '../core/content';
 import { identify, track } from '../platform/analytics';
 import { now as clockNow, resetTime, skipTime, timeOffset } from '../platform/clock';
 import { config } from '../platform/config';
@@ -15,7 +15,12 @@ import { BoardTab, CafeTab, Header, ManageTab, RoomTab, ShiftResult, TopTab } fr
 import { Shift } from './Shift';
 
 type Tab = 'cafe' | 'manage' | 'home' | 'board' | 'top';
-type Phase = { kind: 'loading' } | { kind: 'welcome' } | { kind: 'invite'; invite: Invite; peek: CafePeek | null } | { kind: 'game' };
+type Phase =
+  | { kind: 'loading' }
+  | { kind: 'welcome' }
+  | { kind: 'invite'; invite: Invite; peek: CafePeek | null }
+  | { kind: 'pending'; invite: Invite; peek: CafePeek | null }
+  | { kind: 'game' };
 
 function errorText(e: unknown): string {
   if (e instanceof GameError) {
@@ -55,20 +60,26 @@ export function App() {
     (async () => {
       try {
         const s = await backend.load();
-        if (invite && (!s || s.code !== invite.code)) {
-          const peek = await backend.peek(invite).catch(() => null);
-          track('invite_opened', { found: !!peek, full: !!peek?.full, expired: !!peek?.expired });
+        if (s) pendingInvite.set(null);
+        // Ссылка-приглашение важнее отложенной заявки; без ссылки — проверяем отложенную
+        const inv = invite ?? (!s ? parseInviteParam(pendingInvite.get()) : null);
+        if (inv && (!s || s.code !== inv.code)) {
+          const peek = await backend.peek(inv).catch(() => null);
+          if (invite) track('invite_opened', { found: !!peek, full: !!peek?.full, expired: !!peek?.expired });
           if (peek?.isMember) {
-            setState(await backend.join(invite));
-            setPhase({ kind: 'game' });
-          } else if (!s) {
-            setPhase({ kind: 'invite', invite, peek });
-          } else {
-            // У игрока уже есть кофейня: в MVP одна кофейня на игрока
-            setState(s);
-            setPhase({ kind: 'game' });
+            const st = await backend.enter(inv);
+            if (st) {
+              pendingInvite.set(null);
+              setState(st);
+              setPhase({ kind: 'game' });
+              return;
+            }
           }
-          return;
+          if (!s) {
+            setPhase(peek?.application ? { kind: 'pending', invite: inv, peek } : { kind: 'invite', invite: inv, peek });
+            return;
+          }
+          // У игрока уже есть кофейня: в MVP одна кофейня на игрока
         }
         if (s) {
           setState(s);
@@ -81,7 +92,48 @@ export function App() {
     })();
   }, []);
 
+  // Ожидание одобрения: опрашиваем кофейню, пока заявка висит
+  useEffect(() => {
+    if (phase.kind !== 'pending') return;
+    const inv = phase.invite;
+    let stop = false;
+    const tick = async () => {
+      const peek = await backend.peek(inv).catch(() => null);
+      if (stop) return;
+      if (peek?.isMember) {
+        const st = await backend.enter(inv);
+        if (st && !stop) {
+          pendingInvite.set(null);
+          tg.haptic('success');
+          track('partner_joined', { role: peek.staff.find((x) => x.name === me.name)?.role ?? '' });
+          setState(st);
+          setPhase({ kind: 'game' });
+        }
+        return;
+      }
+      setPhase({ kind: 'pending', invite: inv, peek });
+    };
+    const id = window.setInterval(tick, backend.mode === 'local' ? 3000 : 15000);
+    return () => {
+      stop = true;
+      window.clearInterval(id);
+    };
+  }, [phase.kind, backend]);
+
   useEffect(() => backend.subscribe((s) => setState(s)), [backend]);
+
+  // Игрока убрали из команды (или он вышел в другой вкладке) — возвращаем на старт
+  const removed = phase.kind === 'game' && !!state && !state.players.some((p) => p.id === me.id);
+  useEffect(() => {
+    if (!removed) return;
+    void backend.leave().catch(() => undefined);
+    setShift(null);
+    setResult(null);
+    setTab('cafe');
+    setState(null);
+    setPhase({ kind: 'welcome' });
+    toast(t('removedToast'));
+  }, [removed]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(clockNow()), 1000);
@@ -92,13 +144,14 @@ export function App() {
   const view = useMemo(() => (state ? advance(state, now) : null), [state, now]);
 
   const send = useCallback(
-    async (cmd: Command) => {
+    async (cmd: Command, opts?: { quiet?: boolean }) => {
       try {
         const r = await backend.send(cmd);
         setState(r.state);
         setNow(clockNow());
         return r;
       } catch (e) {
+        if (opts?.quiet) return null;
         tg.haptic('error');
         toast(errorText(e));
         return null;
@@ -177,12 +230,23 @@ export function App() {
     return (
       <Invite
         peek={phase.peek}
-        onJoin={async () => {
+        onApply={async (role) => {
           try {
-            const s = await backend.join(phase.invite);
-            track('partner_joined', { role: phase.peek?.role ?? '' });
-            setState(s);
-            setPhase({ kind: 'game' });
+            await backend.apply(phase.invite, role);
+            pendingInvite.set(`cafe_${phase.invite.code}_${phase.invite.key}`);
+            track('application_sent', { role });
+            const peek = await backend.peek(phase.invite).catch(() => null);
+            if (peek?.isMember) {
+              // Единственный сотрудник мог одобрить мгновенно (или это повторный вход)
+              const st = await backend.enter(phase.invite);
+              if (st) {
+                pendingInvite.set(null);
+                setState(st);
+                setPhase({ kind: 'game' });
+                return;
+              }
+            }
+            setPhase({ kind: 'pending', invite: phase.invite, peek });
             maybeAskWrite();
           } catch (e) {
             toast(errorText(e));
@@ -193,7 +257,28 @@ export function App() {
       />
     );
 
-  if (!view || !state) return <div class="splash">{t('loading')}</div>;
+  if (phase.kind === 'pending')
+    return (
+      <>
+        <Pending
+          peek={phase.peek}
+          onCancel={async () => {
+            await backend.cancelApplication(phase.invite).catch(() => undefined);
+            pendingInvite.set(null);
+            track('application_cancelled', {});
+            setPhase({ kind: 'welcome' });
+          }}
+          onOwn={() => {
+            pendingInvite.set(null);
+            setPhase({ kind: 'welcome' });
+          }}
+          toastText={toastText}
+        />
+        {askWrite && <WriteAccessModal onAnswer={onWriteAnswer} />}
+      </>
+    );
+
+  if (!view || !state || removed) return <div class="splash">{t('loading')}</div>;
 
   const game: Game = {
     state: view,
@@ -298,30 +383,99 @@ function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role)
   );
 }
 
-function Invite({ peek, onJoin, onOwn, toastText }: { peek: CafePeek | null; onJoin: () => void; onOwn: () => void; toastText: string | null }) {
+function Invite({ peek, onApply, onOwn, toastText }: { peek: CafePeek | null; onApply: (role: Role) => void; onOwn: () => void; toastText: string | null }) {
+  const ok = !!peek && !peek.full && !peek.expired;
+  const [role, setRole] = useState<Role | null>(null);
+  // По умолчанию — роль, где людей меньше всего (обычно ту, что прикрывает сосед)
+  const byNeed = [...(peek?.freeRoles ?? [])].sort((x, y) => (peek?.staff.filter((p) => p.role === x).length ?? 0) - (peek?.staff.filter((p) => p.role === y).length ?? 0));
+  const chosen = role && peek?.freeRoles.includes(role) ? role : (byNeed[0] ?? null);
+  const [busy, setBusy] = useState(false);
   return (
     <div class="app onboarding">
       <CafeScene cat={false} busy={true} />
       <div class="onb-body">
         <h1>💌 {t('inviteTitle')}</h1>
-        {peek && !peek.full && !peek.expired && <p>{t('inviteText', { name: peek.owner, cafe: peek.name })}</p>}
-        {peek && !peek.full && !peek.expired && peek.role && (
-          <div class="role-badge">
-            {ROLES[peek.role].icon} {t('inviteRole', { role: L(ROLES[peek.role].name) })}
+        {ok && <p>{t('inviteText', { name: peek.owner, cafe: peek.name })}</p>}
+        {ok && peek.staff.length > 0 && (
+          <div class="team-mini">
+            {peek.staff.map((p) => (
+              <span class="chip">
+                {ROLES[p.role].icon} {p.name}
+              </span>
+            ))}
           </div>
         )}
-        {peek && !peek.full && !peek.expired && peek.role && <p class="muted small">{L(ROLES[peek.role].desc)}</p>}
+        {ok && (
+          <>
+            <label class="small">{t('chooseRole')}</label>
+            <div class="role-cards">
+              {(['barista', 'manager'] as Role[]).map((r) => {
+                const n = peek.staff.filter((p) => p.role === r).length;
+                const free = peek.freeRoles.includes(r);
+                return (
+                  <button class={`role-card ${chosen === r ? 'on' : ''}`} disabled={!free} onClick={() => setRole(r)}>
+                    <span class="role-icon">{ROLES[r].icon}</span>
+                    <b>{L(ROLES[r].name)}</b>
+                    <span class="muted small">{L(ROLES[r].desc)}</span>
+                    <span class="small">{t('roleSlots', { n, max: CONFIG.roleMax[r] })}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p class="muted small">{t('applyHint')}</p>
+          </>
+        )}
         {peek?.full && <p class="muted">{t('inviteFull')}</p>}
         {peek?.expired && !peek.full && <p class="muted">{t('inviteExpired')}</p>}
         {!peek && <p class="muted">{t('inviteNotFound')}</p>}
-        {peek && !peek.full && !peek.expired && (
-          <button class="btn primary big wide" onClick={onJoin}>
-            {t('inviteJoin')}
+        {ok && chosen && (
+          <button
+            class="btn primary big wide"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              await onApply(chosen);
+              setBusy(false);
+            }}
+          >
+            {t('applySend')}
           </button>
         )}
         <button class="btn ghost wide" onClick={onOwn}>
           {t('openOwn')}
         </button>
+      </div>
+      {toastText && <div class="toast">{toastText}</div>}
+    </div>
+  );
+}
+
+function Pending({ peek, onCancel, onOwn, toastText }: { peek: CafePeek | null; onCancel: () => void; onOwn: () => void; toastText: string | null }) {
+  const app = peek?.application;
+  return (
+    <div class="app onboarding">
+      <CafeScene cat={true} busy={false} />
+      <div class="onb-body">
+        <h1>⏳ {t('pendingTitle')}</h1>
+        {app && peek ? (
+          <>
+            <p>{t('pendingText', { cafe: peek.name, role: L(ROLES[app.role].name), n: app.approvals, m: app.needed })}</p>
+            <div class="progress">
+              <div class="progress-fill" style={{ width: `${Math.round((100 * app.approvals) / Math.max(1, app.needed))}%` }} />
+            </div>
+            <p class="muted small">{t('pendingHint')}</p>
+            <button class="btn ghost wide" onClick={onCancel}>
+              {t('pendingCancel')}
+            </button>
+          </>
+        ) : (
+          <>
+            <p class="muted">{t('pendingGone')}</p>
+            <button class="btn primary wide" onClick={onOwn}>
+              {t('openOwn')}
+            </button>
+          </>
+        )}
       </div>
       {toastText && <div class="toast">{toastText}</div>}
     </div>
@@ -363,7 +517,7 @@ function DebugPanel({ onReset }: { onReset: () => void }) {
     const u = new URL(location.href);
     u.search = '';
     u.searchParams.set('startapp', `cafe_${state.code}_${state.inviteKey}`);
-    u.searchParams.set('as', 'partner');
+    u.searchParams.set('as', `staff${state.players.length + state.applications.length + 1}`);
     return u.toString();
   })();
   return (
