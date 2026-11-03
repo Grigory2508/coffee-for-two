@@ -74,12 +74,18 @@ await playShift(a, '03-shift');
 await a.getByRole('button', { name: 'Назад' }).click();
 
 // богатое меню для проверки масштаба
-await mutate(a, "s.money = 9000; s.menu = ['espresso','americano','cappuccino','latte','icedLatte','cocoa','raf','cinnamonCap','flatWhite','caramelLatte','mocha']; s.featured = ['latte','icedLatte','raf','cinnamonCap','caramelLatte','mocha']; s.stock = { beans: 40, milk: 40, syrup: 30, cocoa: 20, catFood: 0 }; s.upgrades.machinePro = true; for (const p of s.players) { p.energy = 3; p.energyAt = Date.now(); }");
+await mutate(a, "s.money = 9000; s.menu = ['espresso','americano','cappuccino','latte','icedLatte','cocoa','raf','cinnamonCap','flatWhite','caramelLatte','mocha']; s.featured = ['latte','icedLatte','raf','cinnamonCap','caramelLatte','mocha']; s.stock = { beans: 40, milk: 40, syrup: 30, cocoa: 20, catFood: 0 }; s.upgrades.machinePro = true; s.upgrades.terrace = true; for (const p of s.players) { p.energy = 3; p.energyAt = Date.now(); }");
 await a.reload();
 await a.waitForSelector('.hud');
 await shot(a, '04-barista-counter-rich');
 await a.getByRole('button', { name: /Встать за стойку/ }).click();
-await a.waitForTimeout(9000);
+await a.waitForTimeout(6000);
+// собрать часть заказа и снять разрез чашки
+for (let k = 0; k < 2; k++) {
+  const todo = await a.locator('.seat:not(.empty)').first().locator('.ri:not(.done)').allInnerTexts();
+  if (todo.length) await a.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click();
+}
+await a.waitForTimeout(700);
 await shot(a, '05-shift-rich');
 await playShift(a, '06-shift-rich', false);
 await shot(a, '06-result-rich');

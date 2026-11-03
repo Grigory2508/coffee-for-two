@@ -5,6 +5,7 @@ import type { GuestResult, ShiftPlan } from '../core/types';
 import { L, t } from '../i18n';
 import { now as clockNow } from '../platform/clock';
 import { tg } from '../platform/telegram';
+import { CupSection } from './cup';
 import { useGame } from './game';
 
 // Смена в духе Cooking Fever, но на 75 секунд и только тапами:
@@ -36,6 +37,17 @@ interface Cup {
 const emptyCup = (): Cup => ({ items: [], brewing: [] });
 const count = (list: ComponentId[], c: ComponentId) => list.reduce((n, x) => n + (x === c ? 1 : 0), 0);
 const contents = (cup: Cup) => [...cup.items, ...cup.brewing.map((b) => b.c)];
+
+/** Раскладка столиков в зале: 3 в ряд, 4–5 — в два ряда. */
+function tablePos(i: number, n: number) {
+  const rows = n <= 3 ? [n] : [Math.ceil(n / 2), Math.floor(n / 2)];
+  const row = i < rows[0] ? 0 : 1;
+  const k = row === 0 ? i : i - rows[0];
+  const inRow = rows[row];
+  const left = ((k + 0.5) / inRow) * 100 + (row === 1 && rows[1] < rows[0] ? 0 : 0);
+  const top = rows.length === 1 ? 50 : row === 0 ? 30 : 74;
+  return { left: `${left}%`, top: `${top}%` };
+}
 
 export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: GuestResult[], cleanliness: number) => void }) {
   const { state } = useGame();
@@ -270,6 +282,33 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         </button>
       </div>
 
+      {/* Зал: столики, за которые садятся обслуженные гости; грязные — протереть тапом */}
+      <div class="hall">
+        <div class="hall-wall">
+          <div class="hall-window" />
+          <div class="hall-window" />
+          <div class="hall-plant">🪴</div>
+          {plan.catInCafe && state.cat && <div class="hall-cat">🐈</div>}
+        </div>
+        <div class="hall-floor">
+          {tables.map((tb, i) => (
+            <button
+              class={`hall-table ${tb.status}`}
+              style={tablePos(i, tables.length)}
+              onClick={() => wipe(i)}
+              disabled={tb.status !== 'dirty'}
+              aria-label={t('tables')}
+            >
+              <span class="chair l" />
+              <span class="chair r" />
+              <span class="table-top">{tb.status === 'dirty' ? '🍽️' : tb.status === 'busy' ? '☕' : ''}</span>
+              {tb.status === 'busy' && <span class="sitter">{tb.face}</span>}
+            </button>
+          ))}
+        </div>
+        {tables.some((tb) => tb.status === 'dirty') && <div class="hall-note">🧽 {t('tablesWipe')}</div>}
+      </div>
+
       {/* Стойка: три места; у каждого гостя тикет, кольцо терпения и своя чашка */}
       <div class="counter-seats">
         {Array.from({ length: SEATS }, (_, k) => {
@@ -306,31 +345,19 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
                   })}
                 </div>
               </div>
-              <div class="cup">
-                {cup.items.map((c) => (
-                  <span class="cup-item">{COMPONENTS[c].icon}</span>
-                ))}
-                {cup.brewing.map((b) => (
-                  <span class="cup-item brewing" style={{ opacity: 0.3 + 0.7 * (1 - Math.max(0, b.until - elapsed) / b.total) }}>
-                    {COMPONENTS[b.c].icon}
-                  </span>
-                ))}
-              </div>
+              <CupSection
+                recipe={DRINKS[g.order].recipe}
+                have={cup.items}
+                brewing={cup.brewing.map((b) => ({ c: b.c, p: 1 - Math.max(0, b.until - elapsed) / b.total }))}
+                size={58}
+                glow={done}
+              />
               {done ? <div class="seat-cta">{t('serve')} ✓</div> : picked === i ? <div class="seat-pin">📌</div> : null}
             </div>
           );
         })}
       </div>
       {waiting.length > SEATS && <div class="queue-more">{t('moreWaiting', { n: waiting.length - SEATS })}</div>}
-
-      <div class="tables">
-        {tables.map((tb, i) => (
-          <button class={`table-spot ${tb.status}`} onClick={() => wipe(i)} disabled={tb.status !== 'dirty'} aria-label={t('tables')}>
-            <span class="table-top">{tb.status === 'busy' ? tb.face : tb.status === 'dirty' ? '🍽️' : '🪑'}</span>
-          </button>
-        ))}
-        <span class="tables-note small">{tables.some((tb) => tb.status === 'dirty') ? t('tablesWipe') : t('tables')}</span>
-      </div>
 
       {/* Станции — в зоне большого пальца. Показываем только нужное для меню дня. */}
       <div class="stations">

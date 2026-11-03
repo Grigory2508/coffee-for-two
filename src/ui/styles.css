@@ -496,7 +496,7 @@ main {
   flex-direction: column;
   gap: 10px;
   padding: 8px 12px calc(10px + var(--safe-bottom));
-  background: linear-gradient(#f3e3cf 0, #f3e3cf 300px, var(--cream) 300px);
+  background: var(--cream);
 }
 
 .shift-top {
@@ -582,7 +582,11 @@ main {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  min-height: 246px;
+  min-height: 236px;
+  padding: 8px;
+  margin-top: -14px;
+  border-radius: 0 0 18px 18px;
+  background: linear-gradient(#8a5a3b, #6b4226 14px, #f3e3cf 14px);
 }
 
 .seat {
@@ -831,7 +835,7 @@ main {
 
 .station-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
   gap: 6px;
 }
 
@@ -1652,4 +1656,152 @@ button.hud-chip {
 .result-stars span.on {
   color: var(--caramel);
   animation: pop-in 0.35s ease-out both;
+}
+
+
+/* ---------- зал и чашка в разрезе ---------- */
+.hall {
+  position: relative;
+  height: 134px;
+  border-radius: 18px 18px 0 0;
+  overflow: hidden;
+  background: #f3e3cf;
+}
+
+.hall-wall {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 46px;
+  background: repeating-linear-gradient(90deg, #f6e9d6 0 18px, #f1e0c8 18px 36px);
+  border-bottom: 4px solid #d8b991;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 0 18px 4px;
+}
+
+.hall-window {
+  width: 62px;
+  height: 30px;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(#cfe8f5, #e8f4fa);
+  border: 3px solid #8a5a3b;
+  border-bottom: 0;
+}
+
+.hall-plant {
+  margin-left: auto;
+  font-size: 22px;
+}
+
+.hall-cat {
+  position: absolute;
+  right: 54px;
+  bottom: 0;
+  font-size: 18px;
+}
+
+.hall-floor {
+  position: absolute;
+  inset: 50px 8px 0 8px;
+  background: repeating-linear-gradient(90deg, transparent 0 40px, rgba(138, 90, 59, 0.06) 40px 41px);
+}
+
+.hall-table {
+  position: absolute;
+  width: 58px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: default;
+}
+
+.hall-table .table-top {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(#c79b6d 55%, #a87b52 56%);
+  box-shadow: 0 3px 0 #8a5a3b;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+}
+
+.hall-table .chair {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 18px;
+  border-radius: 4px;
+  background: #8a5a3b;
+  transform: translateY(-50%);
+}
+
+.hall-table .chair.l {
+  left: 0;
+}
+
+.hall-table .chair.r {
+  right: 0;
+}
+
+.hall-table .sitter {
+  position: absolute;
+  left: -2px;
+  top: -12px;
+  font-size: 22px;
+  animation: pop-in 0.3s ease-out;
+}
+
+.hall-table.dirty {
+  cursor: pointer;
+  animation: wobble 1.2s ease-in-out infinite;
+}
+
+.hall-table.dirty .table-top {
+  box-shadow: 0 3px 0 #8a5a3b, 0 0 0 3px var(--bad);
+}
+
+.hall-table.dirty:active .table-top {
+  transform: translate(-50%, -50%) scale(0.9);
+}
+
+.hall-table:disabled {
+  opacity: 1;
+}
+
+.hall-note {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bad);
+  background: #fffaf3e6;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.cup-section {
+  display: block;
+  overflow: visible;
+}
+
+.cup-section .layer {
+  transition: y 0.15s, height 0.15s;
+}
+
+.cup-section.glow {
+  filter: drop-shadow(0 0 5px rgba(76, 154, 110, 0.7));
+}
+
+.menu-cell .cup-section {
+  align-self: center;
+  margin: 2px 0;
 }

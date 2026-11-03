@@ -30,6 +30,7 @@ import { inviteLink } from '../net/backend';
 import { track } from '../platform/analytics';
 import { tg } from '../platform/telegram';
 import { CafeScene, CatPortrait, DecorIcon, RoomScene } from './art';
+import { CupSection } from './cup';
 import { describeLog, playerName, roleName, timeAgo, useGame } from './game';
 
 // ---------- общие куски ----------
@@ -278,6 +279,7 @@ function MenuToday({ compact }: { compact?: boolean }) {
           return (
             <div class={`menu-cell ${ok ? '' : 'short'}`}>
               <div class="menu-name">{L(d.name)}</div>
+              <CupSection recipe={d.recipe} size={compact ? 40 : 52} />
               <div class="menu-recipe">{d.recipe.map((c) => COMPONENTS[c].icon).join('')}</div>
               <div class="menu-price">{ok ? `${d.price} 🪙` : t('cantMake')}</div>
             </div>

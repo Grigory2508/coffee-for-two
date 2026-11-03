@@ -75,17 +75,21 @@ export const CONFIG = {
  * Компоненты напитков. station — где берётся за стойкой; brewMs — сколько готовится
  * (пока идёт, станция занята, но можно работать с другой чашкой); uses — что тратится со склада.
  */
-export const COMPONENTS: Record<ComponentId, { name: L10n; icon: string; station: StationId; uses?: StockId; brewMs?: number }> = {
-  shot: { name: { ru: 'Эспрессо', en: 'Shot' }, icon: '☕', station: 'machine', uses: 'beans', brewMs: 1400 },
-  water: { name: { ru: 'Кипяток', en: 'Hot water' }, icon: '💧', station: 'machine' },
-  milk: { name: { ru: 'Молоко', en: 'Milk' }, icon: '🥛', station: 'milk', uses: 'milk' },
-  foam: { name: { ru: 'Пенка', en: 'Foam' }, icon: '☁️', station: 'milk', uses: 'milk', brewMs: 1000 },
-  cream: { name: { ru: 'Сливки', en: 'Whipped cream' }, icon: '🍦', station: 'milk', uses: 'milk' },
-  syrup: { name: { ru: 'Ваниль', en: 'Vanilla' }, icon: '🍯', station: 'extras', uses: 'syrup' },
-  caramel: { name: { ru: 'Карамель', en: 'Caramel' }, icon: '🍮', station: 'extras', uses: 'syrup' },
-  cocoa: { name: { ru: 'Какао', en: 'Cocoa' }, icon: '🍫', station: 'extras', uses: 'cocoa' },
-  cinnamon: { name: { ru: 'Корица', en: 'Cinnamon' }, icon: '🪵', station: 'extras' },
-  ice: { name: { ru: 'Лёд', en: 'Ice' }, icon: '🧊', station: 'extras' },
+export const COMPONENTS: Record<
+  ComponentId,
+  { name: L10n; icon: string; station: StationId; uses?: StockId; brewMs?: number; vol: number; color: string; layer: number; kind?: 'foam' | 'cream' | 'sprinkle' | 'ice' }
+> = {
+  // vol — доля в чашке, layer — порядок снизу вверх, kind — как рисовать слой в разрезе чашки
+  shot: { name: { ru: 'Эспрессо', en: 'Shot' }, icon: '☕', station: 'machine', uses: 'beans', brewMs: 1400, vol: 1, color: '#3b2314', layer: 3 },
+  water: { name: { ru: 'Кипяток', en: 'Hot water' }, icon: '💧', station: 'machine', vol: 2, color: '#a87b52', layer: 4 },
+  milk: { name: { ru: 'Молоко', en: 'Milk' }, icon: '🥛', station: 'milk', uses: 'milk', vol: 1.5, color: '#e9d3ad', layer: 5 },
+  foam: { name: { ru: 'Пенка', en: 'Foam' }, icon: '☁️', station: 'milk', uses: 'milk', brewMs: 1000, vol: 1, color: '#fffaf0', layer: 6, kind: 'foam' },
+  cream: { name: { ru: 'Сливки', en: 'Whipped cream' }, icon: '🍦', station: 'milk', uses: 'milk', vol: 1, color: '#ffffff', layer: 7, kind: 'cream' },
+  syrup: { name: { ru: 'Ваниль', en: 'Vanilla' }, icon: '🍯', station: 'extras', uses: 'syrup', vol: 0.5, color: '#e8b04a', layer: 1 },
+  caramel: { name: { ru: 'Карамель', en: 'Caramel' }, icon: '🍮', station: 'extras', uses: 'syrup', vol: 0.5, color: '#c46f24', layer: 0 },
+  cocoa: { name: { ru: 'Какао', en: 'Cocoa' }, icon: '🍫', station: 'extras', uses: 'cocoa', vol: 1, color: '#5a3524', layer: 2 },
+  cinnamon: { name: { ru: 'Корица', en: 'Cinnamon' }, icon: '🪵', station: 'extras', vol: 0, color: '#8b4a22', layer: 8, kind: 'sprinkle' },
+  ice: { name: { ru: 'Лёд', en: 'Ice' }, icon: '🧊', station: 'extras', vol: 0, color: '#e6f5ff', layer: 9, kind: 'ice' },
 };
 
 export const COMPONENT_ORDER: ComponentId[] = ['shot', 'water', 'milk', 'foam', 'cream', 'syrup', 'caramel', 'cocoa', 'cinnamon', 'ice'];
