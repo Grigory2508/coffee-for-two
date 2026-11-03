@@ -5,7 +5,9 @@ export type L10n = { ru: string; en: string };
 export type ComponentId = 'shot' | 'water' | 'milk' | 'foam' | 'syrup' | 'cocoa';
 export type StockId = 'beans' | 'milk' | 'syrup' | 'cocoa' | 'catFood';
 export type DrinkId = 'espresso' | 'americano' | 'cappuccino' | 'latte' | 'raf' | 'cocoa';
-export type UpgradeId = 'machinePro' | 'fridge' | 'cozyHall';
+export type UpgradeId = 'machinePro' | 'fridge' | 'cozyHall' | 'terrace';
+export type Role = 'barista' | 'manager';
+export type MarketingId = 'flyers' | 'blogger';
 export type DecorSlot = 'wall' | 'window' | 'rug' | 'sofa' | 'table' | 'lamp' | 'plant' | 'shelf';
 export type RegularId = 'mark' | 'vera' | 'tolik';
 
@@ -14,6 +16,17 @@ export const CONFIG = {
   energyMax: 3,
   energyRegenMs: 4 * 3600_000,
   shiftGuests: 5,
+  tablesBase: 3,
+  terraceTables: 2,
+  // Управляющий: силы тратятся на «рабочие дела»
+  managerTaskCost: 1,
+  // NPC подхватывает роль напарника, если тот не действовал столько времени
+  npcCoverAfterMs: 24 * 3600_000,
+  // …но только пока хоть один живой игрок заходил недавно
+  npcCoverActiveWindowMs: 48 * 3600_000,
+  npcRestockBelow: 12,
+  npcMarkup: 1.2,
+  swapExpiresMs: 48 * 3600_000,
   shiftDurationMs: 75_000,
   basePatienceMs: 16_000,
   startMoney: 300,
@@ -97,9 +110,53 @@ export const UPGRADES: Record<UpgradeId, { name: L10n; desc: L10n; cost: number;
     cost: 1000,
     icon: '🛋️',
   },
+  terrace: {
+    name: { ru: 'Летняя веранда', en: 'Summer terrace' },
+    desc: { ru: 'Расширение: +2 столика и +1 гость за смену', en: 'Expansion: +2 tables and +1 guest per shift' },
+    cost: 1500,
+    icon: '⛱️',
+  },
 };
 
-export const UPGRADE_ORDER: UpgradeId[] = ['fridge', 'machinePro', 'cozyHall'];
+export const ROLES: Record<Role, { name: L10n; icon: string; desc: L10n }> = {
+  barista: {
+    name: { ru: 'Бариста', en: 'Barista' },
+    icon: '☕',
+    desc: { ru: 'Обслуживает гостей, варит кофе, убирает столики', en: 'Serves guests, makes coffee, cleans tables' },
+  },
+  manager: {
+    name: { ru: 'Управляющий', en: 'Manager' },
+    icon: '📋',
+    desc: { ru: 'Закупает продукты, ведёт меню, расширяет кофейню и занимается рекламой', en: 'Buys supplies, runs the menu, expands the café and does marketing' },
+  },
+};
+
+export const otherRole = (r: Role): Role => (r === 'barista' ? 'manager' : 'barista');
+
+export const MARKETING: Record<MarketingId, { name: L10n; desc: L10n; cost: number; icon: string; guests: number; tipBonus: number; shifts: number }> = {
+  flyers: {
+    name: { ru: 'Листовки у метро', en: 'Flyers at the metro' },
+    desc: { ru: '+1 гость в следующих 3 сменах', en: '+1 guest in the next 3 shifts' },
+    cost: 150,
+    icon: '📰',
+    guests: 1,
+    tipBonus: 0,
+    shifts: 3,
+  },
+  blogger: {
+    name: { ru: 'Пост у местного блогера', en: 'Local blogger post' },
+    desc: { ru: '+2 гостя и +10% чаевых в следующих 3 сменах', en: '+2 guests and +10% tips in the next 3 shifts' },
+    cost: 450,
+    icon: '📱',
+    guests: 2,
+    tipBonus: 0.1,
+    shifts: 3,
+  },
+};
+
+export const MARKETING_ORDER: MarketingId[] = ['flyers', 'blogger'];
+
+export const UPGRADE_ORDER: UpgradeId[] = ['fridge', 'machinePro', 'cozyHall', 'terrace'];
 
 export interface DecorItem {
   id: string;

@@ -28,6 +28,7 @@ interface TgWebApp {
   requestFullscreen?(): void;
   lockOrientation?(): void;
   addToHomeScreen?(): void;
+  showConfirm?(message: string, cb?: (ok: boolean) => void): void;
   checkHomeScreenStatus?(cb: (status: string) => void): void;
   disableVerticalSwipes?(): void;
   setHeaderColor?(c: string): void;
@@ -144,5 +145,11 @@ export const tg = {
   },
   addToHomeScreen() {
     webApp()?.addToHomeScreen?.();
+  },
+  /** Подтверждение: в Telegram — нативное окно, в браузере — confirm. */
+  confirm(message: string): Promise<boolean> {
+    const wa = webApp();
+    if (wa?.showConfirm && wa.isVersionAtLeast('6.2')) return new Promise((res) => wa.showConfirm!(message, (ok) => res(ok)));
+    return Promise.resolve(window.confirm(message));
   },
 };

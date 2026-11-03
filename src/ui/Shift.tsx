@@ -16,7 +16,17 @@ interface Popup {
   good: boolean;
 }
 
-export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: GuestResult[]) => void }) {
+interface Table {
+  status: 'free' | 'busy' | 'dirty';
+  until: number;
+  wipes: number;
+  face: string;
+}
+
+const WIPES_TO_CLEAN = 2;
+const TABLE_STAY_MS = 6000;
+
+export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: GuestResult[], cleanliness: number) => void }) {
   const { state } = useGame();
   const startOffset = Math.max(0, clockNow() - plan.startedAt);
   const t0 = useRef(performance.now() - startOffset);
@@ -35,11 +45,50 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     }
   });
   const finished = useRef(false);
+  const [tables, setTables] = useState<Table[]>(() =>
+    Array.from({ length: plan.tables ?? CONFIG.tablesBase }, () => ({ status: 'free', until: 0, wipes: 0, face: '' })),
+  );
+  // Чистота зала: доля не-грязных столиков, усреднённая по времени смены
+  const cleanSum = useRef(0);
+  const cleanSamples = useRef(0);
+  const cleanliness = () => (cleanSamples.current ? cleanSum.current / cleanSamples.current : 1);
 
   useEffect(() => {
     const id = window.setInterval(() => setElapsed(performance.now() - t0.current), 100);
     return () => window.clearInterval(id);
   }, []);
+
+  // Столики: гости уходят и оставляют посуду; считаем чистоту зала
+  useEffect(() => {
+    if (finished.current) return;
+    if (tables.some((tb) => tb.status === 'busy' && tb.until <= elapsed)) {
+      setTables((ts) => ts.map((tb) => (tb.status === 'busy' && tb.until <= elapsed ? { ...tb, status: 'dirty', wipes: 0 } : tb)));
+    }
+    if (elapsed >= (plan.guests[0]?.arriveMs ?? 0)) {
+      cleanSum.current += tables.filter((tb) => tb.status !== 'dirty').length / tables.length;
+      cleanSamples.current += 1;
+    }
+  }, [elapsed]);
+
+  function wipe(i: number) {
+    if (finished.current) return;
+    tg.haptic('tap');
+    setTables((ts) =>
+      ts.map((tb, k) => {
+        if (k !== i || tb.status !== 'dirty') return tb;
+        const wipes = tb.wipes + 1;
+        return wipes >= WIPES_TO_CLEAN ? { status: 'free', until: 0, wipes: 0, face: '' } : { ...tb, wipes };
+      }),
+    );
+  }
+
+  function seat(face: string) {
+    setTables((ts) => {
+      const idx = ts.findIndex((tb) => tb.status === 'free');
+      if (idx < 0) return ts; // свободных нет — гость берёт с собой
+      return ts.map((tb, k) => (k === idx ? { status: 'busy', until: elapsed + TABLE_STAY_MS, wipes: 0, face } : tb));
+    });
+  }
 
   // Терпение гостей и конец смены
   useEffect(() => {
@@ -60,7 +109,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     }
     if (next.size === plan.guests.length) {
       finished.current = true;
-      window.setTimeout(() => onDone([...next.values()]), 600);
+      window.setTimeout(() => onDone([...next.values()], cleanliness()), 600);
     }
   }, [elapsed]);
 
@@ -117,6 +166,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     setResults(next);
     setCup([]);
     setSelected(null);
+    seat(target.g.regular ? REGULARS[target.g.regular].avatar : GUEST_FACES[(plan.seed + target.i) % GUEST_FACES.length]);
     if (outcome === 'served') {
       tg.haptic('success');
       popup(`+${DRINKS[g.order].price} 🪙`, true);
@@ -133,7 +183,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     plan.guests.forEach((g, i) => {
       if (!next.has(i)) next.set(i, { i, outcome: 'left', waitMs: g.patienceMs });
     });
-    onDone([...next.values()]);
+    onDone([...next.values()], cleanliness());
   }
 
   const timeLeft = Math.max(0, CONFIG.shiftDurationMs - elapsed);
@@ -189,6 +239,15 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         {!queue.length && <div class="queue-empty">{upcoming ? t('nextGuest') : '…'}</div>}
       </div>
 
+      <div class="tables">
+        {tables.map((tb, i) => (
+          <button class={`table-spot ${tb.status}`} onClick={() => wipe(i)} disabled={tb.status !== 'dirty'} aria-label={t('tables')}>
+            <span class="table-top">{tb.status === 'busy' ? tb.face : tb.status === 'dirty' ? (tb.wipes ? '🧽' : '🍽️') : '🪑'}</span>
+          </button>
+        ))}
+        <span class="tables-note small">{t('tables')}</span>
+      </div>
+
       <div class="counter">
         <div class="cup">
           {popups.map((p) => (
@@ -224,7 +283,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         })}
       </div>
       <div class="shift-foot">
-        <span class="muted">{t('shiftHint')}</span>
+        <span class="muted">{t('tablesHint')}</span>
         <button class="link" onClick={endEarly}>
           {t('endShift')}
         </button>

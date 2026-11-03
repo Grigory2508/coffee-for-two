@@ -1,7 +1,8 @@
 // API игры: все действия игроков проходят здесь. Клиент шлёт команды, сервер применяет
 // ту же логику, что и клиент (src/core → _shared/core, копируется `npm run sync-server`).
-import { apply, createCafe } from '../_shared/core/engine.ts';
+import { apply, createCafe, migrate } from '../_shared/core/engine.ts';
 import { GameError, type CafeState, type Command } from '../_shared/core/types.ts';
+import type { Role } from '../_shared/core/content.ts';
 import { insert, remove, select, update } from '../_shared/db.ts';
 import { verifyInitData } from '../_shared/telegram.ts';
 
@@ -45,8 +46,12 @@ async function getMember(userId: number) {
 }
 
 async function getCafe(code: string) {
-  return (await select<CafeRow>('cafes', `code=eq.${encodeURIComponent(code)}&select=code,state,version`))[0] ?? null;
+  const row = (await select<CafeRow>('cafes', `code=eq.${encodeURIComponent(code)}&select=code,state,version`))[0] ?? null;
+  if (row) row.state = migrate(row.state);
+  return row;
 }
+
+const tgId = (playerId: string) => (/^tg\d+$/.test(playerId) ? Number(playerId.slice(2)) : null);
 
 function cafeColumns(s: CafeState) {
   return { state: s, version: s.version, name: s.name, week_id: s.week.id, week_points: s.week.points, updated_at: new Date().toISOString() };
@@ -89,17 +94,25 @@ Deno.serve(async (req) => {
         const m = await getMember(user.id);
         if (!m) return json({ state: null });
         const row = await getCafe(m.code);
-        return json({ state: row?.state ?? null });
+        // Игрока могли убрать из кофейни (смена напарника) — тогда членство больше не действует
+        if (!row || !row.state.players.some((p) => p.id === actor)) {
+          await remove('members', `user_id=eq.${user.id}`);
+          return json({ state: null });
+        }
+        return json({ state: row.state });
       }
       case 'create': {
         const existing = await getMember(user.id);
         if (existing) {
           const row = await getCafe(existing.code);
-          if (row) return json({ state: row.state });
+          if (row && row.state.players.some((p) => p.id === actor)) return json({ state: row.state });
+          await remove('members', `user_id=eq.${user.id}`);
         }
+        const role: Role = body.role === 'manager' ? 'manager' : 'barista';
         const s = createCafe({
           code: newCode(),
           owner: { id: actor, name: user.first_name || 'Игрок' },
+          role,
           npcName: String(body.npcName ?? 'Сосед Артур').slice(0, 30),
           cafeName: String(body.cafeName ?? 'Наше место').slice(0, 24),
           now: Date.now(),
@@ -113,14 +126,25 @@ Deno.serve(async (req) => {
         if (!row) return json({ peek: null });
         const humans = row.state.players.filter((p) => !p.isNpc);
         return json({
-          peek: { name: row.state.name, owner: humans[0]?.name ?? '', full: humans.length >= 2, isMember: row.state.players.some((p) => p.id === actor) },
+          peek: {
+            name: row.state.name,
+            owner: humans[0]?.name ?? '',
+            full: humans.length >= 2,
+            isMember: row.state.players.some((p) => p.id === actor),
+            expired: String(body.key ?? '') !== row.state.inviteKey,
+            role: row.state.players.find((p) => p.isNpc)?.role ?? null,
+          },
         });
       }
       case 'join': {
         const code = String(body.code ?? '');
         const m = await getMember(user.id);
-        if (m && m.code !== code) return fail('already_member');
-        const r = await applyCommand(code, actor, { type: 'join', player: { id: actor, name: user.first_name || 'Игрок' } });
+        if (m && m.code !== code) {
+          // Членство в кофейне, из которой игрока уже убрали, не мешает войти в новую
+          const old = await getCafe(m.code);
+          if (old && old.state.players.some((p) => p.id === actor)) return fail('already_member');
+        }
+        const r = await applyCommand(code, actor, { type: 'join', player: { id: actor, name: user.first_name || 'Игрок' }, key: String(body.key ?? '') });
         await insert('members', { user_id: user.id, code, first_name: user.first_name, lang: user.language_code ?? 'ru' }, true);
         return json({ state: r.state });
       }
@@ -131,7 +155,16 @@ Deno.serve(async (req) => {
         if (cmd.type === 'debugRefill' && !ALLOW_DEBUG) return fail('forbidden', {}, 403);
         const m = await getMember(user.id);
         if (!m) return fail('no_cafe');
+        const before = await getCafe(m.code);
         const r = await applyCommand(m.code, actor, cmd);
+        // Выход и смена напарника: снимаем членство у того, кого больше нет в кофейне
+        if (cmd.type === 'leaveCafe' || cmd.type === 'replacePartner') {
+          const gone = (before?.state.players ?? []).filter((p) => !p.isNpc && !r.state.players.some((q) => q.id === p.id));
+          for (const g of gone) {
+            const id = tgId(g.id);
+            if (id) await remove('members', `user_id=eq.${id}`);
+          }
+        }
         return json(r);
       }
       case 'leave': {

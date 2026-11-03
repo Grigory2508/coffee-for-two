@@ -1,4 +1,4 @@
-import type { DecorSlot, DrinkId, RegularId, StockId, UpgradeId } from './content.ts';
+import type { DecorSlot, DrinkId, MarketingId, RegularId, Role, StockId, UpgradeId } from './content.ts';
 
 export type PlayerId = string;
 
@@ -7,6 +7,8 @@ export interface Player {
   name: string;
   slot: 0 | 1;
   isNpc: boolean;
+  role: Role;
+  lastActionAt: number; // последнее действие (не просто визит) — для подмены NPC
   energy: number;
   energyAt: number; // момент, от которого считается восстановление
   baristaXp: number;
@@ -29,6 +31,8 @@ export interface ShiftPlan {
   startedAt: number;
   guests: ShiftGuest[];
   catInCafe: boolean;
+  tables: number;
+  tipBonus: number;
 }
 
 export type GuestOutcome = 'served' | 'wrong' | 'left';
@@ -53,6 +57,14 @@ export type LogKind =
   | 'shift_done'
   | 'npc_shift'
   | 'stock_bought'
+  | 'supply_run'
+  | 'marketing_launched'
+  | 'npc_cover'
+  | 'swap_proposed'
+  | 'swap_accepted'
+  | 'swap_declined'
+  | 'partner_left'
+  | 'partner_replaced'
   | 'upgrade_bought'
   | 'drink_unlocked'
   | 'decor_bought'
@@ -78,6 +90,9 @@ export interface LogEntry {
 export interface CafeState {
   schema: 1;
   code: string;
+  ownerId: PlayerId;
+  inviteKey: string; // меняется при смене напарника — старые приглашения перестают работать
+  npcName: string;
   name: string;
   version: number;
   createdAt: number;
@@ -90,6 +105,8 @@ export interface CafeState {
   ratingRecent: number[]; // удовлетворённость 0..1 последних гостей
   regulars: Partial<Record<RegularId, { visits: number; seenBy: PlayerId[] }>>;
   activeShifts: Record<PlayerId, ShiftPlan>;
+  swap: null | { by: PlayerId; at: number };
+  marketing: null | { id: MarketingId; guests: number; tipBonus: number; shiftsLeft: number };
   room: {
     unlocked: boolean;
     owned: string[];
@@ -111,12 +128,18 @@ export interface CafeState {
 }
 
 export type Command =
-  | { type: 'join'; player: { id: PlayerId; name: string } }
+  | { type: 'join'; player: { id: PlayerId; name: string }; key?: string }
   | { type: 'rename'; name: string }
   | { type: 'startShift' }
-  | { type: 'finishShift'; results: GuestResult[] }
+  | { type: 'finishShift'; results: GuestResult[]; cleanliness?: number }
   | { type: 'abandonShift' }
-  | { type: 'buyStock'; item: StockId }
+  | { type: 'supplyRun'; items: Partial<Record<StockId, number>> }
+  | { type: 'launchMarketing'; id: MarketingId }
+  | { type: 'proposeSwap' }
+  | { type: 'acceptSwap' }
+  | { type: 'declineSwap' }
+  | { type: 'replacePartner' }
+  | { type: 'leaveCafe' }
   | { type: 'buyUpgrade'; id: UpgradeId }
   | { type: 'unlockDrink'; id: DrinkId }
   | { type: 'buyDecor'; id: string }

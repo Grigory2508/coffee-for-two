@@ -1,4 +1,5 @@
-import { apply, createCafe, type ApplyResult } from '../core/engine';
+import type { Role } from '../core/content';
+import { apply, createCafe, migrate, type ApplyResult } from '../core/engine';
 import { GameError, type CafeState, type Command } from '../core/types';
 import { now } from '../platform/clock';
 import { config } from '../platform/config';
@@ -8,13 +9,18 @@ import { tg } from '../platform/telegram';
 export interface Backend {
   readonly mode: 'local' | 'remote';
   load(): Promise<CafeState | null>;
-  create(cafeName: string, npcName: string): Promise<CafeState>;
-  join(code: string): Promise<CafeState>;
+  create(cafeName: string, npcName: string, role: Role): Promise<CafeState>;
+  join(invite: Invite): Promise<CafeState>;
   /** Короткая информация о кофейне для экрана приглашения. */
-  peek(code: string): Promise<CafePeek | null>;
+  peek(invite: Invite): Promise<CafePeek | null>;
   send(cmd: Command): Promise<ApplyResult>;
   subscribe(cb: (s: CafeState) => void): () => void;
   leave(): Promise<void>;
+}
+
+export interface Invite {
+  code: string;
+  key: string;
 }
 
 export interface CafePeek {
@@ -22,15 +28,19 @@ export interface CafePeek {
   owner: string;
   full: boolean;
   isMember: boolean;
+  expired: boolean;
+  role: Role | null; // роль, которую получит вошедший
 }
 
-export function peekOf(s: CafeState, meId: string): CafePeek {
+export function peekOf(s: CafeState, meId: string, key: string): CafePeek {
   const humansIn = s.players.filter((p) => !p.isNpc);
   return {
     name: s.name,
     owner: humansIn[0]?.name ?? '',
     full: humansIn.length >= 2,
     isMember: s.players.some((p) => p.id === meId),
+    expired: !!s.inviteKey && key !== s.inviteKey,
+    role: s.players.find((p) => p.isNpc)?.role ?? null,
   };
 }
 
@@ -43,8 +53,8 @@ export function newCafeCode(): string {
 }
 
 /** Ссылка-приглашение. С настроенным ботом — Direct Link Mini App, иначе ссылка на веб-версию. */
-export function inviteLink(code: string): string {
-  const param = `cafe_${code}`;
+export function inviteLink(code: string, key: string): string {
+  const param = `cafe_${code}_${key}`;
   if (config.botUsername) return `https://t.me/${config.botUsername}/${config.appShortName}?startapp=${param}`;
   const url = new URL(location.href);
   url.search = '';
@@ -53,10 +63,10 @@ export function inviteLink(code: string): string {
   return url.toString();
 }
 
-export function parseInviteParam(p: string | null): string | null {
+export function parseInviteParam(p: string | null): Invite | null {
   if (!p) return null;
-  const m = /^cafe_([A-Z0-9]{4,16})$/.exec(p);
-  return m ? m[1] : null;
+  const m = /^cafe_([A-Z0-9]{4,16})(?:_([A-Z0-9]{3,10}))?$/.exec(p);
+  return m ? { code: m[1], key: m[2] ?? '' } : null;
 }
 
 // ---------- локальный режим: localStorage + BroadcastChannel ----------
@@ -78,7 +88,7 @@ export class LocalBackend implements Backend {
 
   private read(code: string): CafeState | null {
     const raw = localStorage.getItem(cafeKey(code));
-    return raw ? (JSON.parse(raw) as CafeState) : null;
+    return raw ? migrate(JSON.parse(raw) as CafeState) : null;
   }
 
   private write(s: CafeState) {
@@ -101,25 +111,25 @@ export class LocalBackend implements Backend {
     return s;
   }
 
-  async create(cafeName: string, npcName: string) {
-    const s = createCafe({ code: newCafeCode(), owner: { id: this.me.id, name: this.me.name }, npcName, cafeName, now: now() });
+  async create(cafeName: string, npcName: string, role: Role) {
+    const s = createCafe({ code: newCafeCode(), owner: { id: this.me.id, name: this.me.name }, role, npcName, cafeName, now: now() });
     this.write(s);
     localStorage.setItem(memberKey(this.me.id), s.code);
     return s;
   }
 
-  async join(code: string) {
-    const s = this.read(code);
+  async join(inv: Invite) {
+    const s = this.read(inv.code);
     if (!s) throw new GameError('cafe_not_found');
-    const r = apply(s, { actor: this.me.id, at: now(), cmd: { type: 'join', player: { id: this.me.id, name: this.me.name } } });
+    const r = apply(s, { actor: this.me.id, at: now(), cmd: { type: 'join', player: { id: this.me.id, name: this.me.name }, key: inv.key } });
     this.write(r.state);
-    localStorage.setItem(memberKey(this.me.id), code);
+    localStorage.setItem(memberKey(this.me.id), inv.code);
     return r.state;
   }
 
-  async peek(code: string) {
-    const s = this.read(code);
-    return s ? peekOf(s, this.me.id) : null;
+  async peek(inv: Invite) {
+    const s = this.read(inv.code);
+    return s ? peekOf(s, this.me.id, inv.key) : null;
   }
 
   async send(cmd: Command) {
@@ -178,20 +188,20 @@ export class RemoteBackend implements Backend {
     return r.state;
   }
 
-  async create(cafeName: string, npcName: string) {
-    const r = await this.call<{ state: CafeState }>({ op: 'create', cafeName, npcName });
+  async create(cafeName: string, npcName: string, role: Role) {
+    const r = await this.call<{ state: CafeState }>({ op: 'create', cafeName, npcName, role });
     this.last = r.state;
     return r.state;
   }
 
-  async join(code: string) {
-    const r = await this.call<{ state: CafeState }>({ op: 'join', code });
+  async join(inv: Invite) {
+    const r = await this.call<{ state: CafeState }>({ op: 'join', code: inv.code, key: inv.key });
     this.last = r.state;
     return r.state;
   }
 
-  async peek(code: string) {
-    const r = await this.call<{ peek: CafePeek | null }>({ op: 'peek', code });
+  async peek(inv: Invite) {
+    const r = await this.call<{ peek: CafePeek | null }>({ op: 'peek', code: inv.code, key: inv.key });
     return r.peek;
   }
 

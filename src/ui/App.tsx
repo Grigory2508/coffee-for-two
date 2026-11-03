@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { advance, type ShiftSummary } from '../core/engine';
 import { GameError, type CafeState, type Command, type GuestResult, type ShiftPlan } from '../core/types';
-import { lang, setLang, t, type Lang } from '../i18n';
-import { makeBackend, parseInviteParam, type CafePeek } from '../net/backend';
+import { L, lang, setLang, t, type Lang } from '../i18n';
+import { makeBackend, parseInviteParam, type CafePeek, type Invite } from '../net/backend';
+import { ROLES, type Role } from '../core/content';
 import { identify, track } from '../platform/analytics';
 import { now as clockNow, resetTime, skipTime, timeOffset } from '../platform/clock';
 import { config } from '../platform/config';
@@ -14,7 +15,7 @@ import { BoardTab, CafeTab, Header, ManageTab, RoomTab, ShiftResult, TopTab } fr
 import { Shift } from './Shift';
 
 type Tab = 'cafe' | 'manage' | 'home' | 'board' | 'top';
-type Phase = { kind: 'loading' } | { kind: 'welcome' } | { kind: 'invite'; code: string; peek: CafePeek | null } | { kind: 'game' };
+type Phase = { kind: 'loading' } | { kind: 'welcome' } | { kind: 'invite'; invite: Invite; peek: CafePeek | null } | { kind: 'game' };
 
 function errorText(e: unknown): string {
   if (e instanceof GameError) {
@@ -54,14 +55,14 @@ export function App() {
     (async () => {
       try {
         const s = await backend.load();
-        if (invite && (!s || s.code !== invite)) {
+        if (invite && (!s || s.code !== invite.code)) {
           const peek = await backend.peek(invite).catch(() => null);
-          track('invite_opened', { found: !!peek, full: !!peek?.full });
+          track('invite_opened', { found: !!peek, full: !!peek?.full, expired: !!peek?.expired });
           if (peek?.isMember) {
             setState(await backend.join(invite));
             setPhase({ kind: 'game' });
           } else if (!s) {
-            setPhase({ kind: 'invite', code: invite, peek });
+            setPhase({ kind: 'invite', invite, peek });
           } else {
             // У игрока уже есть кофейня: в MVP одна кофейня на игрока
             setState(s);
@@ -114,9 +115,9 @@ export function App() {
     }
   }
 
-  async function finishShift(results: GuestResult[]) {
+  async function finishShift(results: GuestResult[], cleanliness: number) {
     const plan = shift;
-    const r = await send({ type: 'finishShift', results });
+    const r = await send({ type: 'finishShift', results, cleanliness });
     setShift(null);
     if (r?.summary && plan) {
       track('shift_finished', { ...r.summary, beats: r.summary.beats.length });
@@ -158,10 +159,10 @@ export function App() {
   if (phase.kind === 'welcome')
     return (
       <Welcome
-        onCreate={async (name) => {
+        onCreate={async (name, role) => {
           try {
-            const s = await backend.create(name, lang() === 'ru' ? 'Сосед Артур' : 'Neighbour Arthur');
-            track('cafe_created', {});
+            const s = await backend.create(name, lang() === 'ru' ? 'Сосед Артур' : 'Neighbour Arthur', role);
+            track('cafe_created', { role });
             setState(s);
             setPhase({ kind: 'game' });
           } catch (e) {
@@ -178,8 +179,8 @@ export function App() {
         peek={phase.peek}
         onJoin={async () => {
           try {
-            const s = await backend.join(phase.code);
-            track('partner_joined', {});
+            const s = await backend.join(phase.invite);
+            track('partner_joined', { role: phase.peek?.role ?? '' });
             setState(s);
             setPhase({ kind: 'game' });
             maybeAskWrite();
@@ -194,7 +195,21 @@ export function App() {
 
   if (!view || !state) return <div class="splash">{t('loading')}</div>;
 
-  const game: Game = { state: view, me, now, backend, send, toast };
+  const game: Game = {
+    state: view,
+    me,
+    now,
+    backend,
+    send,
+    toast,
+    onLeft: () => {
+      setShift(null);
+      setResult(null);
+      setTab('cafe');
+      setState(null);
+      setPhase({ kind: 'welcome' });
+    },
+  };
 
   return (
     <GameCtx.Provider value={game}>
@@ -212,7 +227,7 @@ export function App() {
           <>
             <Header />
             <main>
-              {tab === 'cafe' && <CafeTab onStartShift={startShift} />}
+              {tab === 'cafe' && <CafeTab onStartShift={startShift} onOpenManage={() => setTab('manage')} />}
               {tab === 'manage' && <ManageTab />}
               {tab === 'home' && <RoomTab />}
               {tab === 'board' && <BoardTab />}
@@ -222,7 +237,7 @@ export function App() {
               {(
                 [
                   ['cafe', '☕', t('tabCafe')],
-                  ['manage', '📦', t('tabManage')],
+                  ['manage', '📋', t('tabManage')],
                   ['home', view.room.unlocked ? '🏠' : '🔒', t('tabHome')],
                   ['board', '💬', t('tabBoard')],
                   ['top', '🏆', t('tabTop')],
@@ -252,8 +267,9 @@ export function App() {
 
 // ---------- онбординг ----------
 
-function Welcome({ onCreate, toastText }: { onCreate: (name: string) => void; toastText: string | null }) {
+function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role) => void; toastText: string | null }) {
   const [name, setName] = useState(t('cafeNameDefault'));
+  const [role, setRole] = useState<Role>('barista');
   return (
     <div class="app onboarding">
       <CafeScene cat={false} busy={true} />
@@ -262,7 +278,18 @@ function Welcome({ onCreate, toastText }: { onCreate: (name: string) => void; to
         <p class="muted">{t('welcomeText')}</p>
         <label class="small">{t('cafeNameLabel')}</label>
         <input class="input" value={name} maxLength={24} onInput={(e) => setName((e.target as HTMLInputElement).value)} />
-        <button class="btn primary big wide" disabled={!name.trim()} onClick={() => onCreate(name.trim())}>
+        <label class="small">{t('roleChoose')}</label>
+        <div class="role-cards">
+          {(['barista', 'manager'] as Role[]).map((r) => (
+            <button class={`role-card ${role === r ? 'on' : ''}`} onClick={() => setRole(r)}>
+              <span class="role-icon">{ROLES[r].icon}</span>
+              <b>{L(ROLES[r].name)}</b>
+              <span class="muted small">{L(ROLES[r].desc)}</span>
+            </button>
+          ))}
+        </div>
+        <p class="muted small">{t('roleChooseHint')}</p>
+        <button class="btn primary big wide" disabled={!name.trim()} onClick={() => onCreate(name.trim(), role)}>
           {t('openCafe')}
         </button>
       </div>
@@ -277,10 +304,17 @@ function Invite({ peek, onJoin, onOwn, toastText }: { peek: CafePeek | null; onJ
       <CafeScene cat={false} busy={true} />
       <div class="onb-body">
         <h1>💌 {t('inviteTitle')}</h1>
-        {peek && !peek.full && <p>{t('inviteText', { name: peek.owner, cafe: peek.name })}</p>}
+        {peek && !peek.full && !peek.expired && <p>{t('inviteText', { name: peek.owner, cafe: peek.name })}</p>}
+        {peek && !peek.full && !peek.expired && peek.role && (
+          <div class="role-badge">
+            {ROLES[peek.role].icon} {t('inviteRole', { role: L(ROLES[peek.role].name) })}
+          </div>
+        )}
+        {peek && !peek.full && !peek.expired && peek.role && <p class="muted small">{L(ROLES[peek.role].desc)}</p>}
         {peek?.full && <p class="muted">{t('inviteFull')}</p>}
+        {peek?.expired && !peek.full && <p class="muted">{t('inviteExpired')}</p>}
         {!peek && <p class="muted">{t('inviteNotFound')}</p>}
-        {peek && !peek.full && (
+        {peek && !peek.full && !peek.expired && (
           <button class="btn primary big wide" onClick={onJoin}>
             {t('inviteJoin')}
           </button>
@@ -328,7 +362,7 @@ function DebugPanel({ onReset }: { onReset: () => void }) {
   const partnerUrl = (() => {
     const u = new URL(location.href);
     u.search = '';
-    u.searchParams.set('startapp', `cafe_${state.code}`);
+    u.searchParams.set('startapp', `cafe_${state.code}_${state.inviteKey}`);
     u.searchParams.set('as', 'partner');
     return u.toString();
   })();
@@ -376,9 +410,11 @@ function DebugPanel({ onReset }: { onReset: () => void }) {
         <button class="chip" onClick={() => send({ type: 'debugRefill' })}>
           {t('debugRefill')}
         </button>
-        <a class="chip" href={partnerUrl} target="_blank" rel="noopener">
-          {t('debugPartner')}
-        </a>
+        {backend.mode === 'local' && (
+          <a class="chip" href={partnerUrl} target="_blank" rel="noopener">
+            {t('debugPartner')}
+          </a>
+        )}
         {(['ru', 'en'] as Lang[]).map((l) => (
           <button
             class={`chip ${lang() === l ? 'on' : ''}`}

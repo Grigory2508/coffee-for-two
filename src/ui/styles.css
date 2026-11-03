@@ -967,3 +967,143 @@ main {
   gap: 8px;
   box-shadow: 0 8px 30px #0002;
 }
+
+/* ---------- столики ---------- */
+
+.tables {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.table-spot {
+  width: 52px;
+  height: 46px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: var(--paper);
+  font-size: 24px;
+  display: grid;
+  place-items: center;
+  cursor: default;
+  transition: transform 0.08s;
+}
+
+.table-spot.busy {
+  background: #fff6ea;
+}
+
+.table-spot.dirty {
+  background: #fbe3dc;
+  border-color: var(--danger);
+  cursor: pointer;
+  animation: wobble 1.2s ease-in-out infinite;
+}
+
+.table-spot.dirty:active {
+  transform: scale(0.92);
+}
+
+.table-spot:disabled {
+  opacity: 1;
+}
+
+@keyframes wobble {
+  50% {
+    transform: rotate(-3deg);
+  }
+}
+
+.tables-note {
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* ---------- роли ---------- */
+
+.role-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.role-card {
+  border: 2px solid var(--line);
+  background: var(--paper);
+  border-radius: 16px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.role-card.on {
+  border-color: var(--coffee);
+  background: #fff3e2;
+}
+
+.role-card .role-icon {
+  font-size: 28px;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f3e6d4;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.swap-card {
+  border-color: var(--caramel);
+  background: #fff6ea;
+}
+
+.locked-note {
+  background: #f3ece2;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stepper button {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.stepper button:disabled {
+  opacity: 0.4;
+}
+
+.stepper b {
+  min-width: 18px;
+  text-align: center;
+}
+
+fieldset.plain {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.danger-text { color: var(--danger); }

@@ -4,13 +4,16 @@ import {
   CONFIG,
   DECOR_BY_ID,
   DRINKS,
+  MARKETING,
   REGULARS,
   REGULAR_ORDER,
   START_MENU,
   STOCK_PACKS,
   UPGRADES,
+  otherRole,
   type DrinkId,
   type RegularId,
+  type Role,
   type StockId,
 } from './content.ts';
 import { hashString, mulberry32, pick } from './rng.ts';
@@ -72,6 +75,21 @@ export function partnerOf(s: CafeState, id: PlayerId): Player | undefined {
   return s.players.find((p) => p.id !== id);
 }
 
+export function playerByRole(s: CafeState, role: Role): Player | undefined {
+  return s.players.find((p) => p.role === role);
+}
+
+export function newInviteKey(seed: string): string {
+  const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let h = hashString(seed);
+  let out = '';
+  for (let i = 0; i < 5; i++) {
+    h = Math.imul(h ^ (h >>> 13), 2654435761) >>> 0;
+    out += A[h % A.length];
+  }
+  return out;
+}
+
 // ---------- энергия ----------
 
 export function energyNow(p: Player, now: number): { energy: number; nextAt: number | null } {
@@ -93,11 +111,11 @@ function normalizeEnergy(p: Player, now: number) {
   p.energyAt = p.energy >= CONFIG.energyMax ? now : p.energyAt + gained * CONFIG.energyRegenMs;
 }
 
-function spendEnergy(p: Player, now: number) {
+function spendEnergy(p: Player, now: number, amount = 1) {
   normalizeEnergy(p, now);
-  if (p.energy < 1) throw new GameError('no_energy');
+  if (p.energy < amount) throw new GameError('no_energy');
   if (p.energy >= CONFIG.energyMax) p.energyAt = now;
-  p.energy -= 1;
+  p.energy -= amount;
 }
 
 // ---------- рейтинг, ворота, склад ----------
@@ -129,6 +147,14 @@ export function packPrice(s: CafeState, actor: PlayerId, item: StockId): number 
   const lvl = p ? level(p.managerXp) : 0;
   const discount = Math.min(CONFIG.managerDiscountMax, lvl * CONFIG.managerDiscountPerLevel);
   return Math.round(STOCK_PACKS[item].cost * (1 - discount));
+}
+
+export function tablesCount(s: CafeState): number {
+  return CONFIG.tablesBase + (s.upgrades.terrace ? CONFIG.terraceTables : 0);
+}
+
+export function guestsPerShift(s: CafeState): number {
+  return CONFIG.shiftGuests + (s.upgrades.terrace ? 1 : 0) + (s.marketing?.guests ?? 0);
 }
 
 export function recipeUsage(drink: DrinkId): Partial<Record<StockId, number>> {
@@ -163,18 +189,20 @@ export function catInCafe(s: CafeState): boolean {
 
 // ---------- создание ----------
 
-function newPlayer(id: PlayerId, name: string, slot: 0 | 1, isNpc: boolean, now: number): Player {
+function newPlayer(id: PlayerId, name: string, slot: 0 | 1, isNpc: boolean, role: Role, now: number): Player {
   return {
     id,
     name,
     slot,
     isNpc,
+    role,
     energy: CONFIG.energyMax,
     energyAt: now,
     baristaXp: 0,
     managerXp: 0,
     joinedAt: now,
     lastSeenAt: now,
+    lastActionAt: now,
     days: [],
     lastPetAt: 0,
   };
@@ -183,19 +211,24 @@ function newPlayer(id: PlayerId, name: string, slot: 0 | 1, isNpc: boolean, now:
 export function createCafe(opts: {
   code: string;
   owner: { id: PlayerId; name: string };
+  role?: Role;
   npcName: string;
   cafeName: string;
   now: number;
 }): CafeState {
   const { now } = opts;
+  const role = opts.role ?? 'barista';
   const s: CafeState = {
     schema: 1,
     code: opts.code,
+    ownerId: opts.owner.id,
+    inviteKey: newInviteKey(`${opts.code}:${now}`),
+    npcName: opts.npcName,
     name: opts.cafeName,
     version: 1,
     createdAt: now,
     updatedAt: now,
-    players: [newPlayer(opts.owner.id, opts.owner.name, 0, false, now), newPlayer(NPC_ID, opts.npcName, 1, true, now)],
+    players: [newPlayer(opts.owner.id, opts.owner.name, 0, false, role, now), newPlayer(NPC_ID, opts.npcName, 1, true, otherRole(role), now)],
     money: CONFIG.startMoney,
     stock: { ...CONFIG.startStock },
     menu: [...START_MENU],
@@ -203,6 +236,8 @@ export function createCafe(opts: {
     ratingRecent: [],
     regulars: {},
     activeShifts: {},
+    swap: null,
+    marketing: null,
     room: { unlocked: false, owned: [], placed: {} },
     cat: null,
     board: [],
@@ -213,15 +248,26 @@ export function createCafe(opts: {
     nextNpcAt: now + CONFIG.npcShiftEveryMs,
     alerts: { stockLowAt: 0, catHungryAt: 0 },
   };
-  addLog(s, now, opts.owner.id, 'cafe_opened');
+  addLog(s, now, opts.owner.id, 'cafe_opened', { role });
   return s;
 }
 
-// ---------- время ----------
+// ---------- NPC ----------
 
-function npcShift(s: CafeState, at: number) {
+/** Роли, которые сейчас закрывает сосед: свободное место и роль надолго пропавшего напарника. */
+export function npcCoveredRoles(s: CafeState, now: number): Role[] {
+  const roles: Role[] = [];
   const npc = s.players.find((p) => p.isNpc);
-  if (!npc) return;
+  if (npc) roles.push(npc.role);
+  const hs = humans(s);
+  const someoneActive = hs.some((h) => now - h.lastActionAt < CONFIG.npcCoverActiveWindowMs);
+  if (someoneActive && hs.length === 2) {
+    for (const h of hs) if (now - h.lastActionAt >= CONFIG.npcCoverAfterMs) roles.push(h.role);
+  }
+  return roles;
+}
+
+function npcShift(s: CafeState, at: number, covering: boolean) {
   const rnd = mulberry32(hashString(`${s.code}:npc:${at}`));
   let earned = 0;
   let served = 0;
@@ -229,15 +275,39 @@ function npcShift(s: CafeState, at: number) {
     const order = pick(rnd, s.menu);
     if (!canMake(s.stock, order)) continue;
     consume(s.stock, order);
-    const pay = Math.round(DRINKS[order].price * CONFIG.npcEfficiency);
-    earned += pay;
+    earned += Math.round(DRINKS[order].price * CONFIG.npcEfficiency);
     served += 1;
     pushRating(s, 0.6);
   }
   s.money += earned;
   s.stats.earned += earned;
   s.week.points += served * 6;
-  addLog(s, at, npc.id, 'npc_shift', { earned, served });
+  addLog(s, at, NPC_ID, covering ? 'npc_cover' : 'npc_shift', { role: 'barista', earned, served });
+}
+
+function npcRestock(s: CafeState, at: number, covering: boolean) {
+  let spent = 0;
+  const bought: string[] = [];
+  for (const item of ['beans', 'milk'] as StockId[]) {
+    const pack = STOCK_PACKS[item];
+    const cost = Math.round(pack.cost * CONFIG.npcMarkup);
+    if (s.stock[item] < CONFIG.npcRestockBelow && s.money >= cost && s.stock[item] + pack.amount <= capacity(s, item)) {
+      s.money -= cost;
+      s.stock[item] += pack.amount;
+      spent += cost;
+      bought.push(item);
+    }
+  }
+  if (bought.length) addLog(s, at, NPC_ID, covering ? 'npc_cover' : 'supply_run', { role: 'manager', spent, items: bought.join(',') });
+}
+
+function npcTick(s: CafeState, at: number) {
+  const npcRole = s.players.find((p) => p.isNpc)?.role;
+  for (const role of npcCoveredRoles(s, at)) {
+    const covering = role !== npcRole;
+    if (role === 'barista') npcShift(s, at, covering);
+    else npcRestock(s, at, covering);
+  }
 }
 
 function pushRating(s: CafeState, v: number) {
@@ -245,15 +315,16 @@ function pushRating(s: CafeState, v: number) {
   if (s.ratingRecent.length > CONFIG.ratingWindow) s.ratingRecent.splice(0, s.ratingRecent.length - CONFIG.ratingWindow);
 }
 
+// ---------- время ----------
+
 /** Прокрутить мир до момента now: энергия, NPC, кот, неделя, напоминания. Мутирует s. */
 export function advanceMut(s: CafeState, now: number) {
   if (now < s.updatedAt) now = s.updatedAt; // время не идёт назад
   for (const p of s.players) normalizeEnergy(p, now);
 
-  // NPC-партнёр работает, пока в кофейне нет второго человека
   let guard = 0;
-  while (s.players.some((p) => p.isNpc) && s.nextNpcAt <= now && guard < 8) {
-    npcShift(s, s.nextNpcAt);
+  while (s.nextNpcAt <= now && guard < 8) {
+    npcTick(s, s.nextNpcAt);
     s.nextNpcAt += CONFIG.npcShiftEveryMs;
     guard += 1;
   }
@@ -275,6 +346,8 @@ export function advanceMut(s: CafeState, now: number) {
     addLog(s, now, 'system', 'stock_low', { beans: s.stock.beans, milk: s.stock.milk });
   }
 
+  if (s.swap && now - s.swap.at > CONFIG.swapExpiresMs) s.swap = null;
+
   const wk = weekId(now);
   if (wk !== s.week.id) s.week = { id: wk, points: 0 };
 
@@ -286,7 +359,7 @@ export function advanceMut(s: CafeState, now: number) {
 }
 
 export function advance(s: CafeState, now: number): CafeState {
-  const n = clone(s);
+  const n = migrate(clone(s));
   advanceMut(n, now);
   return n;
 }
@@ -296,7 +369,7 @@ export function advance(s: CafeState, now: number): CafeState {
 export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): ShiftPlan {
   const seed = hashString(`${s.code}:${actor}:${s.version}:${now}`);
   const rnd = mulberry32(seed);
-  const n = CONFIG.shiftGuests;
+  const n = guestsPerShift(s);
   const span = CONFIG.shiftDurationMs - 25_000;
   const patience = CONFIG.basePatienceMs + (s.upgrades.cozyHall ? 3000 : 0);
   const guests: ShiftGuest[] = [];
@@ -317,7 +390,7 @@ export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): Shift
     guests[k].order = s.menu.includes(fav) ? fav : guests[k].order;
     guests[k].patienceMs += 4000; // постоянные гости терпеливее
   }
-  return { seed, startedAt: now, guests, catInCafe: catInCafe(s) };
+  return { seed, startedAt: now, guests, catInCafe: catInCafe(s), tables: tablesCount(s), tipBonus: s.marketing?.tipBonus ?? 0 };
 }
 
 export interface ShiftSummary {
@@ -329,16 +402,18 @@ export interface ShiftSummary {
   points: number;
   beats: { regular: RegularId; beat: number }[];
   noStock: number;
+  cleanliness: number;
 }
 
-export function tipFor(s: CafeState, p: Player, drink: DrinkId, waitMs: number, patienceMs: number, cat: boolean): number {
+export function tipFor(s: CafeState, p: Player, drink: DrinkId, waitMs: number, patienceMs: number, cat: boolean, tipBonus = 0): number {
   const speed = Math.max(0, 1 - waitMs / patienceMs);
-  const mult = (1 + 0.05 * level(p.baristaXp)) * (s.upgrades.machinePro ? 1.15 : 1) * (cat ? 1.1 : 1);
+  const mult = (1 + 0.05 * level(p.baristaXp)) * (s.upgrades.machinePro ? 1.15 : 1) * (cat ? 1.1 : 1) * (1 + tipBonus);
   return Math.round(DRINKS[drink].price * 0.25 * speed * mult);
 }
 
-function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: GuestResult[], at: number): ShiftSummary {
+function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: GuestResult[], cleanlinessIn: number | undefined, at: number): ShiftSummary {
   const p = getPlayer(s, actor)!;
+  const cleanliness = Math.max(0, Math.min(1, Number.isFinite(cleanlinessIn) ? Number(cleanlinessIn) : 1));
   const byIdx = new Map<number, GuestResult>();
   for (const r of results) {
     if (Number.isInteger(r.i) && r.i >= 0 && r.i < plan.guests.length && !byIdx.has(r.i)) byIdx.set(r.i, r);
@@ -346,7 +421,7 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
   const today = dayKey(at);
   const bothActive = humans(s).length === 2 && humans(s).every((h) => h.id === actor || h.days.includes(today));
   const coop = bothActive ? 1.2 : 1;
-  const sum: ShiftSummary = { earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0 };
+  const sum: ShiftSummary = { earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0, cleanliness };
 
   plan.guests.forEach((g, i) => {
     const r = byIdx.get(i);
@@ -359,7 +434,7 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
     let sat = 0;
     if (outcome === 'served') {
       consume(s.stock, g.order);
-      const tip = tipFor(s, p, g.order, wait, g.patienceMs, plan.catInCafe);
+      const tip = tipFor(s, p, g.order, wait, g.patienceMs, plan.catInCafe, plan.tipBonus ?? 0);
       sum.earned += DRINKS[g.order].price + tip;
       sum.tips += tip;
       sum.served += 1;
@@ -384,6 +459,8 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
       sum.left += 1;
       s.stats.guestsLost += 1;
     }
+    // Грязные столики портят впечатление
+    sat *= 0.8 + 0.2 * cleanliness;
     pushRating(s, sat);
     sum.points += Math.round(sat * 10 * coop);
   });
@@ -417,8 +494,25 @@ function requireMoney(s: CafeState, cost: number) {
   if (s.money < cost) throw new GameError('no_money', { cost });
 }
 
+function requireRole(p: Player, role: Role) {
+  if (p.role !== role) throw new GameError('wrong_role', { role });
+}
+
+/** Заменить человека на NPC с той же ролью (выход или смена напарника). */
+function replaceWithNpc(s: CafeState, playerId: PlayerId, at: number) {
+  const idx = s.players.findIndex((p) => p.id === playerId);
+  if (idx < 0) return;
+  const old = s.players[idx];
+  s.players.splice(idx, 1, newPlayer(NPC_ID, s.npcName, old.slot, true, old.role, at));
+  delete s.activeShifts[playerId];
+  s.swap = null;
+}
+
+const MANAGER_COMMANDS = new Set(['supplyRun', 'unlockDrink', 'buyUpgrade', 'launchMarketing']);
+const BARISTA_COMMANDS = new Set(['startShift', 'finishShift', 'abandonShift']);
+
 export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
-  const s = clone(state);
+  const s = migrate(clone(state));
   const { actor, at, cmd } = env;
   advanceMut(s, at);
   const out: ApplyResult = { state: s };
@@ -428,12 +522,13 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     if (existing) {
       existing.name = cmd.player.name || existing.name;
     } else {
+      if (cmd.key !== s.inviteKey) throw new GameError('invite_expired');
       const npcIdx = s.players.findIndex((p) => p.isNpc);
-      if (npcIdx < 0 && s.players.length >= CONFIG.maxPlayers) throw new GameError('cafe_full');
-      const np = newPlayer(cmd.player.id, cmd.player.name, 1, false, at);
-      if (npcIdx >= 0) s.players.splice(npcIdx, 1, np);
-      else s.players.push(np);
-      addLog(s, at, np.id, 'partner_joined', { name: np.name });
+      if (npcIdx < 0) throw new GameError('cafe_full');
+      const npc = s.players[npcIdx];
+      const np = newPlayer(cmd.player.id, cmd.player.name, npc.slot, false, npc.role, at);
+      s.players.splice(npcIdx, 1, np);
+      addLog(s, at, np.id, 'partner_joined', { name: np.name, role: np.role });
     }
     bump(s, at);
     return out;
@@ -441,6 +536,9 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
 
   const p = getPlayer(s, actor);
   if (!p || p.isNpc) throw new GameError('not_member');
+  if (MANAGER_COMMANDS.has(cmd.type)) requireRole(p, 'manager');
+  if (BARISTA_COMMANDS.has(cmd.type)) requireRole(p, 'barista');
+  if (cmd.type !== 'seen') p.lastActionAt = at;
 
   switch (cmd.type) {
     case 'rename': {
@@ -453,19 +551,23 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     case 'startShift': {
       const prev = s.activeShifts[actor];
       if (prev && at - prev.startedAt < CONFIG.shiftDurationMs + 60_000) {
-        out.shiftPlan = prev; // возобновляем незавершённую смену без повторной траты энергии
+        out.shiftPlan = prev; // возобновляем незавершённую смену без повторной траты сил
         return out;
       }
       spendEnergy(p, at);
       const plan = makeShiftPlan(s, actor, at);
       s.activeShifts[actor] = plan;
+      if (s.marketing) {
+        s.marketing.shiftsLeft -= 1;
+        if (s.marketing.shiftsLeft <= 0) s.marketing = null;
+      }
       out.shiftPlan = plan;
       break;
     }
     case 'finishShift': {
       const plan = s.activeShifts[actor];
       if (!plan) throw new GameError('no_shift');
-      out.summary = resolveShift(s, actor, plan, cmd.results, at);
+      out.summary = resolveShift(s, actor, plan, cmd.results, cmd.cleanliness, at);
       delete s.activeShifts[actor];
       markDay(p, at);
       break;
@@ -473,22 +575,27 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     case 'abandonShift': {
       const plan = s.activeShifts[actor];
       if (!plan) throw new GameError('no_shift');
-      out.summary = resolveShift(s, actor, plan, [], at);
+      out.summary = resolveShift(s, actor, plan, [], 1, at);
       delete s.activeShifts[actor];
       break;
     }
-    case 'buyStock': {
-      const pack = STOCK_PACKS[cmd.item];
-      if (!pack) throw new GameError('bad_item');
-      const cap = capacity(s, cmd.item);
-      if (s.stock[cmd.item] + pack.amount > cap) throw new GameError('capacity', { cap });
-      const cost = packPrice(s, actor, cmd.item);
+    case 'supplyRun': {
+      // Одна поездка к поставщику = 1 сила, сколько угодно упаковок в пределах склада и денег
+      const entries = (Object.entries(cmd.items ?? {}) as [StockId, number][]).filter(([k, n]) => STOCK_PACKS[k] && Number.isInteger(n) && n > 0);
+      if (!entries.length) throw new GameError('empty_order');
+      let cost = 0;
+      for (const [k, n] of entries) {
+        const cap = capacity(s, k);
+        if (s.stock[k] + STOCK_PACKS[k].amount * n > cap) throw new GameError('capacity', { cap });
+        cost += packPrice(s, actor, k) * n;
+      }
       requireMoney(s, cost);
+      spendEnergy(p, at, CONFIG.managerTaskCost);
       s.money -= cost;
-      s.stock[cmd.item] += pack.amount;
-      p.managerXp += 10;
+      for (const [k, n] of entries) s.stock[k] += STOCK_PACKS[k].amount * n;
+      p.managerXp += 10 * entries.length;
       markDay(p, at);
-      addLog(s, at, actor, 'stock_bought', { item: cmd.item, amount: pack.amount, cost });
+      addLog(s, at, actor, 'supply_run', { cost, items: entries.map(([k, n]) => `${k}:${n}`).join(',') });
       break;
     }
     case 'buyUpgrade': {
@@ -496,6 +603,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       if (!up) throw new GameError('bad_item');
       if (s.upgrades[cmd.id]) throw new GameError('owned');
       requireMoney(s, up.cost);
+      spendEnergy(p, at, CONFIG.managerTaskCost);
       s.money -= up.cost;
       s.upgrades[cmd.id] = true;
       p.managerXp += 25;
@@ -503,7 +611,21 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       addLog(s, at, actor, 'upgrade_bought', { id: cmd.id });
       break;
     }
+    case 'launchMarketing': {
+      const m = MARKETING[cmd.id];
+      if (!m) throw new GameError('bad_item');
+      if (s.marketing) throw new GameError('marketing_active');
+      requireMoney(s, m.cost);
+      spendEnergy(p, at, CONFIG.managerTaskCost);
+      s.money -= m.cost;
+      s.marketing = { id: cmd.id, guests: m.guests, tipBonus: m.tipBonus, shiftsLeft: m.shifts };
+      p.managerXp += 15;
+      markDay(p, at);
+      addLog(s, at, actor, 'marketing_launched', { id: cmd.id });
+      break;
+    }
     case 'unlockDrink': {
+      // Меню — решение, а не работа: силы не тратит
       const d = DRINKS[cmd.id];
       if (!d) throw new GameError('bad_item');
       if (s.menu.includes(cmd.id)) throw new GameError('owned');
@@ -514,6 +636,62 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       markDay(p, at);
       addLog(s, at, actor, 'drink_unlocked', { id: cmd.id });
       break;
+    }
+    case 'proposeSwap': {
+      if (s.activeShifts[actor]) throw new GameError('shift_in_progress');
+      const partner = partnerOf(s, actor);
+      if (!partner) throw new GameError('no_partner');
+      if (partner.isNpc) {
+        // Сосед всегда согласен
+        [p.role, partner.role] = [partner.role, p.role];
+        s.swap = null;
+        addLog(s, at, actor, 'swap_accepted', { role: p.role });
+        break;
+      }
+      if (s.activeShifts[partner.id]) throw new GameError('shift_in_progress');
+      if (s.swap?.by === actor) throw new GameError('swap_pending');
+      s.swap = { by: actor, at };
+      addLog(s, at, actor, 'swap_proposed', {});
+      break;
+    }
+    case 'acceptSwap': {
+      if (!s.swap || s.swap.by === actor) throw new GameError('no_swap');
+      const proposer = getPlayer(s, s.swap.by);
+      if (!proposer || proposer.isNpc) {
+        s.swap = null;
+        throw new GameError('no_swap');
+      }
+      if (s.activeShifts[actor] || s.activeShifts[proposer.id]) throw new GameError('shift_in_progress');
+      [p.role, proposer.role] = [proposer.role, p.role];
+      s.swap = null;
+      addLog(s, at, actor, 'swap_accepted', { role: p.role });
+      break;
+    }
+    case 'declineSwap': {
+      if (!s.swap) throw new GameError('no_swap');
+      const by = s.swap.by;
+      s.swap = null;
+      addLog(s, at, actor, 'swap_declined', { cancelledBy: by === actor ? 1 : 0 });
+      break;
+    }
+    case 'replacePartner': {
+      // Только создатель кофейни. Место напарника переходит соседу, старые приглашения сгорают.
+      if (actor !== s.ownerId) throw new GameError('owner_only');
+      const partner = partnerOf(s, actor);
+      if (!partner || partner.isNpc) throw new GameError('no_partner');
+      const name = partner.name;
+      replaceWithNpc(s, partner.id, at);
+      s.inviteKey = newInviteKey(`${s.code}:${at}:${s.version}`);
+      addLog(s, at, actor, 'partner_replaced', { name });
+      break;
+    }
+    case 'leaveCafe': {
+      if (actor === s.ownerId) throw new GameError('owner_cannot_leave');
+      const name = p.name;
+      replaceWithNpc(s, actor, at);
+      addLog(s, at, 'system', 'partner_left', { name });
+      bump(s, at);
+      return out;
     }
     case 'buyDecor': {
       if (!s.room.unlocked) throw new GameError('room_locked');
@@ -608,4 +786,20 @@ export function digestFor(s: CafeState, playerId: PlayerId): LogEntry[] {
   const p = getPlayer(s, playerId);
   if (!p) return [];
   return s.log.filter((e) => e.at > p.lastSeenAt && e.actor !== playerId);
+}
+
+/** Старые сохранения (до ролей) приводим к новой схеме. */
+export function migrate(s: CafeState): CafeState {
+  const x = s as CafeState & Partial<Pick<CafeState, 'ownerId' | 'inviteKey' | 'npcName' | 'swap' | 'marketing'>>;
+  if (!x.ownerId) x.ownerId = x.players.find((p) => !p.isNpc)?.id ?? '';
+  if (!x.inviteKey) x.inviteKey = newInviteKey(`${x.code}:migrate`);
+  if (!x.npcName) x.npcName = x.players.find((p) => p.isNpc)?.name ?? 'Сосед Артур';
+  if (x.swap === undefined) x.swap = null;
+  if (x.marketing === undefined) x.marketing = null;
+  x.players.forEach((p, i) => {
+    if (!p.role) p.role = i === 0 ? 'barista' : 'manager';
+    if (!p.lastActionAt) p.lastActionAt = p.lastSeenAt;
+  });
+  if (x.players.length === 2 && x.players[0].role === x.players[1].role) x.players[1].role = otherRole(x.players[0].role);
+  return x;
 }

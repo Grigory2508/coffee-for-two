@@ -53,7 +53,20 @@ function describe(s: CafeState, e: LogEntry, lang: Lang): string | null {
     case 'npc_shift':
       return ru ? `${who} подменил(а) на смене: +${p.earned} 🪙` : `${who} covered a shift: +${p.earned} 🪙`;
     case 'stock_bought':
+    case 'supply_run':
       return ru ? `${who} пополнил(а) склад` : `${who} restocked`;
+    case 'marketing_launched':
+      return ru ? `${who} запустил(а) рекламу — гостей станет больше 📣` : `${who} launched a campaign — more guests coming 📣`;
+    case 'npc_cover':
+      return ru ? 'Сосед подменил напарника, пока его не было' : 'The neighbour covered for your partner';
+    case 'swap_proposed':
+      return ru ? `${who} предлагает поменяться ролями — зайди и ответь 🔄` : `${who} suggests swapping roles — open the café to answer 🔄`;
+    case 'swap_accepted':
+      return ru ? 'Вы поменялись ролями 🔄' : 'You swapped roles 🔄';
+    case 'partner_left':
+      return ru ? `${p.name} вышел(ла) из кофейни, его место занял сосед` : `${p.name} left the café; the neighbour took the spot`;
+    case 'partner_replaced':
+      return ru ? 'Тебя убрали из кофейни' : 'You were removed from the café';
     case 'note':
       return `${who}: ${p.sticker ?? ''} ${p.text ?? ''}`.trim();
     case 'room_unlocked':
@@ -138,7 +151,7 @@ async function onUpdate(u: Update) {
     const [cmd, param] = String(msg.text).split(/\s+/);
     if (cmd === '/start') {
       await insert('notify_state', { user_id: msg.from.id, can_write: true, blocked: false }, true).catch(() => {});
-      const startParam = param && /^cafe_[A-Z0-9]{4,16}$/.test(param) ? param : 'bot';
+      const startParam = param && /^cafe_[A-Z0-9]{4,16}(_[A-Z0-9]{3,10})?$/.test(param) ? param : 'bot';
       await botApi(TOKEN, 'sendMessage', {
         chat_id: msg.chat.id,
         text: TEXT.start[lang],
@@ -178,6 +191,8 @@ async function onUpdate(u: Update) {
     const q = u.inline_query;
     const lang = L(q.from?.language_code ?? 'ru');
     const member = (await select<MemberRow>('members', `user_id=eq.${q.from.id}&select=user_id,code,lang`))[0];
+    const cafe = member ? (await select<{ state: CafeState }>('cafes', `code=eq.${member.code}&select=state`))[0] : undefined;
+    const key = cafe?.state.inviteKey ?? '';
     const results = member
       ? [
           {
@@ -186,7 +201,7 @@ async function onUpdate(u: Update) {
             title: TEXT.inviteTitle[lang],
             description: TEXT.inviteText[lang],
             input_message_content: { message_text: TEXT.inviteText[lang] },
-            reply_markup: { inline_keyboard: [[{ text: TEXT.invite[lang], url: link(`cafe_${member.code}`) }]] },
+            reply_markup: { inline_keyboard: [[{ text: TEXT.invite[lang], url: link(`cafe_${member.code}${key ? `_${key}` : ''}`) }]] },
           },
         ]
       : [];
