@@ -3,7 +3,7 @@
 export type L10n = { ru: string; en: string };
 
 export type ComponentId = 'shot' | 'water' | 'milk' | 'foam' | 'cream' | 'syrup' | 'caramel' | 'cocoa' | 'cinnamon' | 'ice';
-export type StockId = 'beans' | 'milk' | 'syrup' | 'cocoa' | 'catFood';
+export type StockId = 'beans' | 'milk' | 'syrup' | 'cocoa' | 'cups' | 'catFood';
 export type DrinkId =
   | 'espresso'
   | 'americano'
@@ -29,7 +29,7 @@ export const CONFIG = {
   energyMax: 3,
   energyRegenMs: 4 * 3600_000,
   shiftGuests: 5,
-  tablesBase: 3,
+  tablesBase: 4,
   terraceTables: 2,
   // Управляющий: силы тратятся на «рабочие дела»
   managerTaskCost: 1,
@@ -51,7 +51,9 @@ export const CONFIG = {
   shiftDurationMs: 75_000,
   basePatienceMs: 16_000,
   startMoney: 300,
-  startStock: { beans: 20, milk: 20, syrup: 0, cocoa: 0, catFood: 0 } as Record<StockId, number>,
+  startStock: { beans: 20, milk: 20, syrup: 0, cocoa: 0, cups: 20, catFood: 0 } as Record<StockId, number>,
+  // Доля гостей, которые берут кофе с собой (им нужен бумажный стакан со склада)
+  takeawayShare: 0.4,
   baseCapacity: 40,
   fridgeMilkCapacity: 80,
   ratingWindow: 30,
@@ -131,10 +133,11 @@ export const STOCK_PACKS: Record<StockId, { name: L10n; icon: string; amount: nu
   milk: { name: { ru: 'Молоко', en: 'Milk' }, icon: '🥛', amount: 20, cost: 240 },
   syrup: { name: { ru: 'Сиропы', en: 'Syrups' }, icon: '🍯', amount: 10, cost: 180 },
   cocoa: { name: { ru: 'Какао', en: 'Cocoa' }, icon: '🍫', amount: 10, cost: 160 },
+  cups: { name: { ru: 'Стаканы с собой', en: 'Takeaway cups' }, icon: '🥤', amount: 20, cost: 80 },
   catFood: { name: { ru: 'Корм для кота', en: 'Cat food' }, icon: '🐟', amount: 10, cost: 120 },
 };
 
-export const STOCK_ORDER: StockId[] = ['beans', 'milk', 'syrup', 'cocoa', 'catFood'];
+export const STOCK_ORDER: StockId[] = ['beans', 'milk', 'syrup', 'cocoa', 'cups', 'catFood'];
 
 export const UPGRADES: Record<UpgradeId, { name: L10n; desc: L10n; cost: number; icon: string }> = {
   machinePro: {

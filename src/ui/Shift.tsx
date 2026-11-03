@@ -8,12 +8,12 @@ import { tg } from '../platform/telegram';
 import { CupSection } from './cup';
 import { useGame } from './game';
 
-// Смена: 75 секунд, только тапы. Одна чашка на прилавке — для выбранного гостя (по умолчанию первого).
-// Ингредиент, который заказу не нужен, отскакивает. Эспрессо и пенка готовятся с таймером —
-// пока машина работает, можно добавить остальное. «Подать» всегда на одном месте.
+// Смена: 75 секунд, только тапы. У стойки один гость; следующий подходит, когда этого обслужили
+// (или он ушёл). Сначала ставишь посуду — чашку (здесь) или стакан (с собой), потом ингредиенты.
+// Ненужный ингредиент отскакивает. Эспрессо и пенка готовятся с таймером. «Подать» всегда на одном месте.
 
 const GUEST_FACES = ['🧑', '👩', '👨‍🦱', '👩‍🦰', '🧔', '👱‍♀️', '🧑‍🎓', '👨‍💼'];
-const SEATS = 3;
+const NEXT_GAP_MS = 700;
 const TABLE_STAY_MS = 6000;
 // Станции снизу вверх по частоте: эспрессо почти в каждом напитке — ближе всего к большому пальцу
 const STATION_STACK: StationId[] = ['extras', 'milk', 'machine'];
@@ -30,14 +30,15 @@ interface Table {
   face: string;
 }
 
+type Vessel = 'mug' | 'paper';
+
 interface Cup {
-  /** Для какого гостя собирается (индекс в плане), null — пустая чашка. */
-  guest: number | null;
+  vessel: Vessel | null;
   items: ComponentId[];
   brewing: { c: ComponentId; until: number; total: number }[];
 }
 
-const EMPTY: Cup = { guest: null, items: [], brewing: [] };
+const EMPTY: Cup = { vessel: null, items: [], brewing: [] };
 const count = (list: ComponentId[], c: ComponentId) => list.reduce((n, x) => n + (x === c ? 1 : 0), 0);
 
 export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: GuestResult[], cleanliness: number) => void }) {
@@ -47,7 +48,9 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const [elapsed, setElapsed] = useState(startOffset);
   const [results, setResults] = useState<Map<number, GuestResult>>(new Map());
   const [cup, setCup] = useState<Cup>(EMPTY);
-  const [picked, setPicked] = useState<number | null>(null);
+  // Кто у стойки и с какого момента (терпение считается от подхода к стойке)
+  const [current, setCurrent] = useState<{ i: number; since: number } | null>(null);
+  const [nextAt, setNextAt] = useState(0);
   const [stock, setStock] = useState<Record<StockId, number>>({ ...state.stock });
   const [popups, setPopups] = useState<Popup[]>([]);
   const [bounce, setBounce] = useState<string | null>(null);
@@ -109,49 +112,58 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     });
   }
 
-  // Терпение гостей и конец смены
+  // Очередь: кто пришёл и ещё не обслужен; к стойке подходит первый, когда она свободна
+  const waiting = useMemo(
+    () => plan.guests.map((g, i) => ({ g, i })).filter(({ g, i }) => g.arriveMs <= elapsed && !results.has(i)),
+    [elapsed, results],
+  );
+
   useEffect(() => {
     if (finished.current) return;
-    let changed = false;
     const next = new Map(results);
-    plan.guests.forEach((g, i) => {
-      if (next.has(i)) return;
-      if (elapsed - g.arriveMs >= g.patienceMs || elapsed >= CONFIG.shiftDurationMs) {
-        next.set(i, { i, outcome: 'left', waitMs: g.patienceMs });
-        changed = true;
-      }
-    });
-    if (changed) {
-      setResults(next);
+    let changed = false;
+    // гость у стойки не дождался
+    if (current && elapsed - current.since >= plan.guests[current.i].patienceMs) {
+      next.set(current.i, { i: current.i, outcome: 'left', waitMs: plan.guests[current.i].patienceMs });
+      changed = true;
+      setCurrent(null);
+      setCup(EMPTY);
+      setNextAt(elapsed + NEXT_GAP_MS);
       setStreak(0);
       tg.haptic('error');
-      // Гость ушёл, не дождавшись, — его чашка больше не нужна
-      if (cup.guest !== null && next.has(cup.guest)) setCup(EMPTY);
-      if (picked !== null && next.has(picked)) setPicked(null);
+    } else if (!current && elapsed >= nextAt && waiting.length) {
+      setCurrent({ i: waiting[0].i, since: elapsed });
     }
+    // конец смены: все, кто не обслужен, уходят
+    if (elapsed >= CONFIG.shiftDurationMs) {
+      plan.guests.forEach((g, i) => {
+        if (!next.has(i)) {
+          next.set(i, { i, outcome: 'left', waitMs: g.patienceMs });
+          changed = true;
+        }
+      });
+    }
+    if (changed) setResults(next);
     if (next.size === plan.guests.length) {
       finished.current = true;
       window.setTimeout(() => onDone([...next.values()], cleanliness()), 600);
     }
   }, [elapsed]);
 
-  const waiting = useMemo(
-    () => plan.guests.map((g, i) => ({ g, i })).filter(({ g, i }) => g.arriveMs <= elapsed && !results.has(i)),
-    [elapsed, results],
-  );
-  const atCounter = waiting.slice(0, SEATS);
+  const queue = waiting.filter((q) => q.i !== current?.i);
   const upcoming = plan.guests.some((g, i) => g.arriveMs > elapsed && !results.has(i));
   const face = (i: number) => {
     const g = plan.guests[i];
     return g.regular ? REGULARS[g.regular].avatar : GUEST_FACES[(plan.seed + i) % GUEST_FACES.length];
   };
 
-  // Для кого чашка: к кому уже начали собирать, иначе выбранный, иначе первый у стойки
-  const target = cup.guest ?? (picked !== null && atCounter.some((q) => q.i === picked) ? picked : (atCounter[0]?.i ?? null));
-  const recipe = target !== null ? DRINKS[plan.guests[target].order].recipe : [];
+  const target = current?.i ?? null;
+  const guest = target !== null ? plan.guests[target] : null;
+  const recipe = guest ? DRINKS[guest.order].recipe : [];
+  const wantVessel: Vessel | null = guest ? (guest.takeaway ? 'paper' : 'mug') : null;
   const inCup = [...cup.items, ...cup.brewing.map((b) => b.c)];
   const needs = (c: ComponentId) => count(recipe, c) > count(inCup, c);
-  const complete = target !== null && !cup.brewing.length && cup.items.length === recipe.length && recipe.every((c) => count(cup.items, c) === count(recipe, c));
+  const complete = target !== null && !!cup.vessel && !cup.brewing.length && cup.items.length === recipe.length && recipe.every((c) => count(cup.items, c) === count(recipe, c));
 
   const brewingAt = (st: StationId) => cup.brewing.filter((b) => COMPONENTS[b.c].station === st);
   const stationProgress = (st: StationId) => {
@@ -167,20 +179,14 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     window.setTimeout(() => setBounce(null), 350);
   }
 
-  function pick(i: number) {
-    if (finished.current) return;
-    if (cup.guest !== null && cup.guest !== i) {
-      // Чашку можно передать другому гостю, если то, что в ней, подходит его заказу
-      const r = DRINKS[plan.guests[i].order].recipe;
-      if (inCup.every((c) => count(r, c) >= count(inCup, c))) {
-        tg.haptic('select');
-        setCup({ ...cup, guest: i });
-        setPicked(i);
-      } else shake('cup');
+  function setVessel(v: Vessel) {
+    if (finished.current || cup.vessel) return;
+    if (v === 'paper' && stock.cups <= 0) {
+      shake('cups');
       return;
     }
     tg.haptic('select');
-    setPicked(i);
+    setCup({ ...cup, vessel: v });
   }
 
   function add(c: ComponentId) {
@@ -188,16 +194,21 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     const comp = COMPONENTS[c];
     const st = comp.uses;
     const usedStock = st ? inCup.filter((x) => COMPONENTS[x].uses === st).length : 0;
+    if (target !== null && !cup.vessel) {
+      shake('vessel');
+      popup(t('pickCup'), false);
+      return;
+    }
     if (target === null || !needs(c) || (st && usedStock + 1 > stock[st]) || (comp.brewMs && brewingAt(comp.station).length >= heads[comp.station])) {
       shake(c);
       return;
     }
     if (comp.brewMs) {
       tg.haptic('select');
-      setCup({ ...cup, guest: target, brewing: [...cup.brewing, { c, until: elapsed + comp.brewMs, total: comp.brewMs }] });
+      setCup({ ...cup, brewing: [...cup.brewing, { c, until: elapsed + comp.brewMs, total: comp.brewMs }] });
     } else {
       tg.haptic('tap');
-      setCup({ ...cup, guest: target, items: [...cup.items, c] });
+      setCup({ ...cup, items: [...cup.items, c] });
     }
   }
 
@@ -211,8 +222,14 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     if (finished.current || !complete || target === null) return;
     const i = target;
     const g = plan.guests[i];
-    const waitMs = Math.max(0, elapsed - g.arriveMs);
-    const use = recipeUsage(g.order);
+    if (cup.vessel !== wantVessel) {
+      shake('cup');
+      popup(g.takeaway ? t('wrongCupAway') : t('wrongCupHere'), false);
+      return;
+    }
+    const waitMs = Math.max(0, elapsed - (current?.since ?? g.arriveMs));
+    const use = { ...recipeUsage(g.order) };
+    if (g.takeaway) use.cups = 1;
     const enough = (Object.keys(use) as StockId[]).every((s) => stock[s] >= (use[s] ?? 0));
     if (enough) {
       const ns = { ...stock };
@@ -223,8 +240,10 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     next.set(i, { i, outcome: enough ? 'served' : 'wrong', waitMs });
     setResults(next);
     setCup(EMPTY);
-    setPicked(null);
-    seat(face(i));
+    setCurrent(null);
+    setNextAt(elapsed + NEXT_GAP_MS);
+    // с собой — уходит со стаканом, здесь — садится за столик
+    if (!g.takeaway) seat(face(i));
     if (enough) {
       tg.haptic('success');
       setStreak(streak + 1);
@@ -238,7 +257,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   }
 
   function pourOut() {
-    if (cup.brewing.length || !cup.items.length) return;
+    if (cup.brewing.length || !cup.vessel) return;
     tg.haptic('tap');
     setCup(EMPTY);
   }
@@ -274,75 +293,91 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         </button>
       </div>
 
-      {/* Гости у стойки: тап — собирать его заказ */}
-      <div class="guests">
-        {Array.from({ length: SEATS }, (_, k) => {
-          const q = atCounter[k];
-          if (!q) return <div class="guest empty">{k === 0 && !waiting.length ? <span class="muted small">{upcoming ? t('nextGuest') : '…'}</span> : null}</div>;
-          const { g, i } = q;
-          const left = Math.max(0, 1 - (elapsed - g.arriveMs) / g.patienceMs);
-          const reg = g.regular ? REGULARS[g.regular] : null;
-          const ring = left > 0.5 ? 'var(--ok)' : left > 0.25 ? 'var(--warn)' : 'var(--bad)';
-          const mine = target === i;
-          const have = mine ? [...inCup] : [];
-          return (
-            <button class={`guest ${mine ? 'target' : ''} ${left < 0.25 ? 'angry' : ''} ${mine && bounce === 'cup' ? 'bounce' : ''}`} onClick={() => pick(i)}>
-              <div class="guest-face" style={{ background: `conic-gradient(${ring} ${left * 360}deg, var(--line) 0)` }}>
-                <span>{face(i)}</span>
+      {/* У стойки один гость; остальные ждут в очереди */}
+      <div class="counter-guest">
+        {guest && target !== null ? (
+          (() => {
+            const left = Math.max(0, 1 - (elapsed - current!.since) / guest.patienceMs);
+            const reg = guest.regular ? REGULARS[guest.regular] : null;
+            const ring = left > 0.5 ? 'var(--ok)' : left > 0.25 ? 'var(--warn)' : 'var(--bad)';
+            const have = [...inCup];
+            return (
+              <div class={`guest-card ${left < 0.25 ? 'angry' : ''}`} key={target}>
+                <div class="guest-face big" style={{ background: `conic-gradient(${ring} ${left * 360}deg, var(--line) 0)` }}>
+                  <span>{face(target)}</span>
+                </div>
+                <div class="guest-order">
+                  {reg && <div class="guest-name">★ {L(reg.name)}</div>}
+                  <div class="ticket-name">{L(DRINKS[guest.order].name)}</div>
+                  <div class="ticket-recipe">
+                    {recipe.map((c) => {
+                      const k = have.indexOf(c);
+                      if (k >= 0) have.splice(k, 1);
+                      return <span class={`ri ${k >= 0 ? 'done' : ''}`}>{COMPONENTS[c].icon}</span>;
+                    })}
+                  </div>
+                  <span class={`to-go ${guest.takeaway ? 'away' : 'here'}`}>{guest.takeaway ? t('takeaway') : t('dineIn')}</span>
+                </div>
               </div>
-              {reg && <div class="guest-name">★ {L(reg.name)}</div>}
-              <div class="ticket-name">{L(DRINKS[g.order].name)}</div>
-              <div class="ticket-recipe">
-                {DRINKS[g.order].recipe.map((c) => {
-                  const k2 = have.indexOf(c);
-                  if (k2 >= 0) have.splice(k2, 1);
-                  return <span class={`ri ${k2 >= 0 ? 'done' : ''}`}>{COMPONENTS[c].icon}</span>;
-                })}
-              </div>
-            </button>
-          );
-        })}
+            );
+          })()
+        ) : (
+          <div class="guest-card empty muted small">{upcoming || queue.length ? t('nextGuest') : '…'}</div>
+        )}
+        <div class="queue-line">
+          {queue.slice(0, 4).map((q) => (
+            <span class="queue-face">{face(q.i)}</span>
+          ))}
+          {queue.length > 4 && <span class="queue-face more">+{queue.length - 4}</span>}
+          {queue.length > 0 && <span class="queue-label">{t('inQueue')}</span>}
+        </div>
       </div>
-      {waiting.length > SEATS && <div class="queue-more">{t('moreWaiting', { n: waiting.length - SEATS })}</div>}
 
-      {/* Столики плашками в ряд: тап по грязному — протереть */}
-      <div class="tables">
+      {/* Столики в два ряда: тап по грязному — протереть */}
+      <div class={`tables-grid n${tables.length}`}>
         {tables.map((tb, i) => (
-          <button class={`table-spot ${tb.status}`} onClick={() => wipe(i)} disabled={tb.status !== 'dirty'} aria-label={t('tables')}>
-            <span class="table-top">{tb.status === 'busy' ? tb.face : tb.status === 'dirty' ? '🍽️' : '🪑'}</span>
+          <button class={`table-tile ${tb.status}`} onClick={() => wipe(i)} disabled={tb.status !== 'dirty'} aria-label={t('tables')}>
+            <span class="chair l" />
+            <span class="chair r" />
+            <span class="table-top">{tb.status === 'dirty' ? '🍽️' : tb.status === 'busy' ? '☕' : ''}</span>
+            {tb.status === 'busy' && <span class="sitter">{tb.face}</span>}
           </button>
         ))}
-        <span class="tables-note small">{tables.some((tb) => tb.status === 'dirty') ? t('tablesWipe') : t('tables')}</span>
       </div>
+      <div class="tables-note small">{tables.some((tb) => tb.status === 'dirty') ? t('tablesWipe') : '\u00a0'}</div>
 
-      {/* Прилавок: одна чашка в разрезе, «Вылить» и «Подать» всегда здесь */}
-      <div class={`counter-bar ${complete ? 'ready' : ''}`}>
+      {/* Прилавок: посуда, чашка в разрезе, «Вылить» и «Подать» всегда здесь */}
+      <div class={`counter-bar ${complete && cup.vessel === wantVessel ? 'ready' : ''}`}>
         {popups.map((p) => (
           <div class={`popup ${p.good ? 'good' : 'bad'}`} key={p.id}>
             {p.text}
           </div>
         ))}
-        <div class={`counter-cup ${bounce === 'cup' ? 'bounce' : ''}`}>
-          {target !== null ? (
-            <CupSection recipe={recipe} have={cup.items} brewing={cup.brewing.map((b) => ({ c: b.c, p: 1 - Math.max(0, b.until - elapsed) / b.total }))} size={70} glow={complete} />
-          ) : (
-            <CupSection recipe={[]} size={70} />
-          )}
-        </div>
-        <div class="counter-info">
-          {target !== null ? (
-            <>
-              <div class="counter-for">
-                {face(target)} <b>{L(DRINKS[plan.guests[target].order].name)}</b>
-              </div>
-              <div class="muted small">{complete ? t('cupReady') : t('cupHint')}</div>
-            </>
-          ) : (
-            <div class="muted small">{upcoming ? t('nextGuest') : '…'}</div>
-          )}
-        </div>
+        {cup.vessel ? (
+          <div class={`counter-cup ${bounce === 'cup' ? 'bounce' : ''}`}>
+            <CupSection
+              recipe={recipe}
+              have={cup.items}
+              brewing={cup.brewing.map((b) => ({ c: b.c, p: 1 - Math.max(0, b.until - elapsed) / b.total }))}
+              size={70}
+              glow={complete && cup.vessel === wantVessel}
+              vessel={cup.vessel}
+            />
+          </div>
+        ) : (
+          <div class={`vessel-pick ${bounce === 'vessel' ? 'bounce' : ''}`}>
+            <button class="vessel" disabled={target === null} onClick={() => setVessel('mug')}>
+              <CupSection recipe={[]} size={34} />
+              <span>{t('mug')}</span>
+            </button>
+            <button class={`vessel ${bounce === 'cups' ? 'bounce' : ''}`} disabled={target === null || stock.cups <= 0} onClick={() => setVessel('paper')}>
+              <CupSection recipe={[]} size={34} vessel="paper" />
+              <span>{stock.cups > 0 ? `${t('paperCup')} · ${stock.cups}` : t('noCups')}</span>
+            </button>
+          </div>
+        )}
         <div class="counter-actions">
-          <button class="btn ghost pour-btn" disabled={!cup.items.length || cup.brewing.length > 0} onClick={pourOut} aria-label={t('pour')}>
+          <button class="btn ghost pour-btn" disabled={!cup.vessel || cup.brewing.length > 0} onClick={pourOut} aria-label={t('pour')}>
             🗑
           </button>
           <button class="btn primary serve-btn" disabled={!complete} onClick={serve}>

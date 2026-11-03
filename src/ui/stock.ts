@@ -1,10 +1,11 @@
-import { STOCK_ORDER, type StockId } from '../core/content';
+import { CONFIG, STOCK_ORDER, type StockId } from '../core/content';
 import { capacity, guestsPerShift, packPrice, recipeUsage, todayMenu } from '../core/engine';
 import type { CafeState } from '../core/types';
 import { STOCK_PACKS } from '../core/content';
 
 /** Сколько единиц продукта уходит за одну смену по меню дня (в среднем). */
 export function perShift(s: CafeState, item: StockId): number {
+  if (item === 'cups') return guestsPerShift(s) * CONFIG.takeawayShare;
   const menu = todayMenu(s);
   if (!menu.length) return 0;
   let sum = 0;

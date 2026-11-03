@@ -11,6 +11,8 @@ interface Props {
   brewing?: { c: ComponentId; p: number }[];
   size?: number;
   glow?: boolean;
+  /** Керамическая чашка (здесь) или бумажный стакан с крышкой (с собой). */
+  vessel?: 'mug' | 'paper';
 }
 
 const W = 64;
@@ -22,11 +24,15 @@ const IN_TOP_L = 9;
 const IN_TOP_R = 55;
 const IN_BOT_L = 13;
 const IN_BOT_R = 51;
+// бумажный стакан: заметнее сужается книзу, без ручки
+const PAPER = `M8 ${TOP + 4} L56 ${TOP + 4} L49 ${BOTTOM} L15 ${BOTTOM} Z`;
 const CLIP = `M${IN_TOP_L} ${TOP} L${IN_TOP_R} ${TOP} L${IN_BOT_R} ${BOTTOM - 4} Q${IN_BOT_R} ${BOTTOM} ${IN_BOT_R - 4} ${BOTTOM} L${IN_BOT_L + 4} ${BOTTOM} Q${IN_BOT_L} ${BOTTOM} ${IN_BOT_L} ${BOTTOM - 4} Z`;
 
 let uid = 0;
 
-export function CupSection({ recipe, have, brewing = [], size = 64, glow }: Props) {
+export function CupSection({ recipe, have, brewing = [], size = 64, glow, vessel = 'mug' }: Props) {
+  const paper = vessel === 'paper';
+  const shape = paper ? PAPER : CLIP;
   const id = `cup${++uid}`;
   const filled = have ?? recipe;
   // какие компоненты рецепта уже есть (мультимножество)
@@ -71,13 +77,12 @@ export function CupSection({ recipe, have, brewing = [], size = 64, glow }: Prop
     <svg class={`cup-section ${glow ? 'glow' : ''}`} viewBox={`0 0 ${W} ${H}`} width={size} height={(size * H) / W} role="img" aria-label={recipe.map((c) => COMPONENTS[c].icon).join(' ')}>
       <defs>
         <clipPath id={id}>
-          <path d={CLIP} />
+          <path d={shape} />
         </clipPath>
       </defs>
-      {/* ручка */}
-      <path d={`M${IN_TOP_R + 2} 24 q12 2 10 16 q-2 12 -12 12`} fill="none" stroke="#d9c6ae" stroke-width="4" stroke-linecap="round" />
-      {/* стекло */}
-      <path d={CLIP} fill="#f6f3ee" />
+      {/* ручка у чашки */}
+      {!paper && <path d={`M${IN_TOP_R + 2} 24 q12 2 10 16 q-2 12 -12 12`} fill="none" stroke="#d9c6ae" stroke-width="4" stroke-linecap="round" />}
+      <path d={shape} fill={paper ? '#fbf6ee' : '#f6f3ee'} />
       <g clip-path={`url(#${id})`}>
         {layers.map((l) => {
           const comp = COMPONENTS[l.c];
@@ -112,9 +117,20 @@ export function CupSection({ recipe, have, brewing = [], size = 64, glow }: Prop
           [12, 17, 23, 28, 34, 39, 45, 50].map((x, i) => <circle cx={x} cy={surface + 1.6 + (i % 3) * 0.9} r="1.1" fill={COMPONENTS[part.c].color} opacity={part.p ? 1 : 0.25} />),
         )}
       </g>
-      {/* контур стекла и блик */}
-      <path d={CLIP} fill="none" stroke="#c9b59b" stroke-width="1.6" />
-      <path d={`M${IN_TOP_L + 5} ${TOP + 6} L${IN_BOT_L + 4} ${BOTTOM - 10}`} stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity="0.7" />
+      {paper ? (
+        <>
+          {/* картонная манжета и крышка поверх разреза */}
+          <path d={`M10.5 40 L53.5 40 L51.6 54 L12.4 54 Z`} fill="#b07a4a" opacity="0.55" />
+          <path d={shape} fill="none" stroke="#b9a184" stroke-width="1.6" />
+          <rect x="5" y={TOP - 1} width="54" height="6" rx="3" fill="#fff" stroke="#b9a184" stroke-width="1.3" />
+          <rect x="20" y={TOP - 5} width="24" height="5" rx="2" fill="#fff" stroke="#b9a184" stroke-width="1.2" />
+        </>
+      ) : (
+        <>
+          <path d={CLIP} fill="none" stroke="#c9b59b" stroke-width="1.6" />
+          <path d={`M${IN_TOP_L + 5} ${TOP + 6} L${IN_BOT_L + 4} ${BOTTOM - 10}`} stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity="0.7" />
+        </>
+      )}
     </svg>
   );
 }

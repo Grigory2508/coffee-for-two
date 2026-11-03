@@ -38,16 +38,21 @@ async function playShift(page, label, shots = true) {
     if (await dirty.count()) await dirty.first().click({ timeout: 300 }).catch(() => {});
     const ready = page.locator('.serve-btn:not([disabled])');
     if (await ready.count()) {
-      if (shots && n === 1) await shot(page, `${label}-ready`);
       await ready.first().click({ timeout: 300 }).catch(() => {});
+      if (shots && n === 1) await shot(page, `${label}-ready`);
       n++;
       continue;
     }
-    const seat = page.locator('.guest.target').first();
-    if (await seat.count()) {
-      const todo = await seat.locator('.ri:not(.done)').allInnerTexts().catch(() => []);
-      if (todo.length) await page.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click({ timeout: 300 }).catch(() => {});
-      if (shots && n === 0 && tick === 12) await shot(page, `${label}-building`);
+    const card = page.locator('.guest-card:not(.empty)').first();
+    if (await card.count()) {
+      if (await page.locator('.vessel-pick').count()) {
+        const away = await card.locator('.to-go.away').count();
+        await page.locator('.vessel', { hasText: away ? /Стакан/ : /Чашка/ }).click({ timeout: 300 }).catch(() => {});
+      } else {
+        const todo = await card.locator('.ri:not(.done)').allInnerTexts().catch(() => []);
+        if (todo.length) await page.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click({ timeout: 300 }).catch(() => {});
+      }
+      if (shots && n === 0 && tick === 14) await shot(page, `${label}-building`);
     }
     await page.waitForTimeout(110);
   }
@@ -80,12 +85,18 @@ await a.waitForSelector('.hud');
 await shot(a, '04-barista-counter-rich');
 await a.getByRole('button', { name: /Встать за стойку/ }).click();
 await a.waitForTimeout(6000);
-// собрать часть заказа и снять разрез чашки
-for (let k = 0; k < 2; k++) {
-  const todo = await a.locator('.guest.target').first().locator('.ri:not(.done)').allInnerTexts();
-  if (todo.length) await a.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click();
+// поставить посуду, собрать часть заказа и снять разрез
+{
+  const card = a.locator('.guest-card:not(.empty)').first();
+  await card.waitFor();
+  const away = await card.locator('.to-go.away').count();
+  await a.locator('.vessel', { hasText: away ? /Стакан/ : /Чашка/ }).click();
+  for (let k = 0; k < 2; k++) {
+    const todo = await card.locator('.ri:not(.done)').allInnerTexts();
+    if (todo.length) await a.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click();
+  }
+  await a.waitForTimeout(700);
 }
-await a.waitForTimeout(700);
 await shot(a, '05-shift-rich');
 await playShift(a, '06-shift-rich', false);
 await shot(a, '06-result-rich');

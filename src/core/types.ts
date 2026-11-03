@@ -25,6 +25,8 @@ export interface ShiftGuest {
   patienceMs: number;
   arriveMs: number; // смещение от начала смены
   regular?: RegularId;
+  /** Берёт с собой: нужен бумажный стакан, за столик не садится. */
+  takeaway?: boolean;
 }
 
 export interface ShiftPlan {

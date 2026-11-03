@@ -212,9 +212,15 @@ export function canMake(stock: Record<StockId, number>, drink: DrinkId): boolean
   return (Object.keys(use) as StockId[]).every((k) => stock[k] >= (use[k] ?? 0));
 }
 
-function consume(stock: Record<StockId, number>, drink: DrinkId) {
+function consume(stock: Record<StockId, number>, drink: DrinkId, takeaway = false) {
   const use = recipeUsage(drink);
   for (const k of Object.keys(use) as StockId[]) stock[k] -= use[k] ?? 0;
+  if (takeaway) stock.cups -= 1;
+}
+
+/** Хватит ли склада на заказ гостя (с собой — ещё и стакан). */
+export function canServe(stock: Record<StockId, number>, g: ShiftGuest): boolean {
+  return canMake(stock, g.order) && (!g.takeaway || (stock.cups ?? 0) >= 1);
 }
 
 /** Совпадают ли собранные компоненты с рецептом (порядок не важен). */
@@ -447,6 +453,8 @@ export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): Shift
     guests[k].order = todayMenu(s).includes(fav) ? fav : guests[k].order;
     guests[k].patienceMs += 4000; // постоянные гости терпеливее
   }
+  // С собой или здесь: постоянные гости всегда садятся за столик (их истории — за столиком)
+  for (const g of guests) g.takeaway = !g.regular && rnd() < CONFIG.takeawayShare;
   return { seed, startedAt: now, guests, catInCafe: catInCafe(s), tables: tablesCount(s), tipBonus: s.marketing?.tipBonus ?? 0 };
 }
 
@@ -485,13 +493,13 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
     const r = byIdx.get(i);
     let outcome = r?.outcome ?? 'left';
     const wait = Math.max(0, Math.min(r?.waitMs ?? g.patienceMs, g.patienceMs));
-    if (outcome !== 'left' && !canMake(s.stock, g.order)) {
+    if (outcome !== 'left' && !canServe(s.stock, g)) {
       outcome = 'left';
       sum.noStock += 1;
     }
     let sat = 0;
     if (outcome === 'served') {
-      consume(s.stock, g.order);
+      consume(s.stock, g.order, g.takeaway);
       const tip = tipFor(s, p, g.order, wait, g.patienceMs, plan.catInCafe, plan.tipBonus ?? 0);
       sum.earned += DRINKS[g.order].price + tip;
       sum.tips += tip;
@@ -508,7 +516,7 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
         }
       }
     } else if (outcome === 'wrong') {
-      consume(s.stock, g.order);
+      consume(s.stock, g.order, g.takeaway);
       sum.earned += Math.round(DRINKS[g.order].price * 0.5);
       sum.wrong += 1;
       p.baristaXp += 3;
@@ -969,6 +977,7 @@ export function migrate(s: CafeState): CafeState {
   if ((x as Partial<CafeState>).office === undefined) x.office = null;
   if (!Array.isArray((x as Partial<CafeState>).applications)) x.applications = [];
   if (x.marketing === undefined) x.marketing = null;
+  if (x.stock.cups === undefined) x.stock.cups = CONFIG.startStock.cups;
   if (!Array.isArray((x as Partial<CafeState>).featured)) x.featured = x.menu.slice(0, CONFIG.menuSlots);
   x.players.forEach((p, i) => {
     if (!p.role) p.role = i === 0 ? 'barista' : 'manager';

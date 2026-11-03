@@ -347,3 +347,41 @@ describe('меню дня', () => {
     expect(migrate(s).featured).toEqual(['espresso', 'americano', 'cappuccino']);
   });
 });
+
+describe('с собой', () => {
+  it('часть гостей берёт с собой, постоянные — всегда здесь', () => {
+    let s = fresh();
+    let away = 0;
+    let total = 0;
+    for (let k = 0; k < 6; k++) {
+      const r = run(s, 'a', { type: 'startShift' }, T0 + k * 10);
+      const plan = r.shiftPlan!;
+      for (const g of plan.guests) {
+        total++;
+        if (g.takeaway) away++;
+        if (g.regular) expect(g.takeaway).toBe(false);
+      }
+      s = run(r.state, 'a', { type: 'abandonShift' }, T0 + k * 10 + 1).state;
+      getPlayer(s, 'a')!.energy = 3;
+    }
+    expect(away).toBeGreaterThan(0);
+    expect(away).toBeLessThan(total);
+  });
+
+  it('гость с собой тратит стакан, без стаканов уходит', () => {
+    const s = fresh();
+    const r = run(s, 'a', { type: 'startShift' }, T0);
+    const plan = r.shiftPlan!;
+    plan.guests.forEach((g, i) => (g.takeaway = i === 0));
+    const before = r.state.stock.cups;
+    const done = run(r.state, 'a', { type: 'finishShift', results: plan.guests.map((_, i) => ({ i, outcome: 'served', waitMs: 1000 })), cleanliness: 1 }, T0 + 60_000);
+    expect(done.state.stock.cups).toBe(before - 1);
+
+    const s2 = fresh();
+    s2.stock.cups = 0;
+    const r2 = run(s2, 'a', { type: 'startShift' }, T0);
+    r2.shiftPlan!.guests.forEach((g, i) => (g.takeaway = i === 0));
+    const d2 = run(r2.state, 'a', { type: 'finishShift', results: r2.shiftPlan!.guests.map((_, i) => ({ i, outcome: 'served', waitMs: 1000 })), cleanliness: 1 }, T0 + 60_000);
+    expect(d2.summary!.noStock).toBe(1);
+  });
+});

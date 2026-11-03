@@ -1934,3 +1934,243 @@ button.hud-chip {
   font-weight: 700;
   color: var(--muted);
 }
+
+/* ---------- смена v4: один гость, столики в два ряда, посуда ---------- */
+.counter-guest {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guest-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: var(--paper);
+  border: 2px solid var(--caramel);
+  min-height: 104px;
+  animation: pop-in 0.25s ease-out;
+}
+
+.guest-card.empty {
+  border: 2px dashed var(--line);
+  background: transparent;
+  justify-content: center;
+  animation: none;
+}
+
+.guest-card.angry .guest-face span {
+  animation: shake 0.5s ease-in-out infinite;
+}
+
+.guest-face.big {
+  width: 76px;
+  height: 76px;
+  flex: none;
+}
+
+.guest-face.big span {
+  width: 66px;
+  height: 66px;
+  font-size: 40px;
+}
+
+.guest-order {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.guest-order .ticket-name {
+  font-size: 18px;
+  min-height: 0;
+  display: block;
+}
+
+.guest-order .ticket-recipe {
+  justify-content: flex-start;
+  font-size: 22px;
+  gap: 4px;
+}
+
+.to-go {
+  font-size: 13px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.to-go.away {
+  background: #e3effa;
+  color: #2f6690;
+}
+
+.to-go.here {
+  background: #f3e3cf;
+  color: var(--coffee);
+}
+
+.queue-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding-left: 4px;
+}
+
+.queue-face {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--paper);
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+}
+
+.queue-face.more {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.queue-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.tables-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.tables-grid.n3,
+.tables-grid.n4 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.table-tile {
+  position: relative;
+  height: 66px;
+  border-radius: 14px;
+  border: 2px solid transparent;
+  background: #f3e3cf;
+  padding: 0;
+  cursor: default;
+}
+
+.table-tile .table-top {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  width: 42px;
+  height: 42px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(#c79b6d 55%, #a87b52 56%);
+  box-shadow: 0 3px 0 #8a5a3b;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+}
+
+.table-tile .chair {
+  position: absolute;
+  top: 54%;
+  width: 13px;
+  height: 22px;
+  border-radius: 5px;
+  background: #8a5a3b;
+  transform: translateY(-50%);
+}
+
+.table-tile .chair.l {
+  left: calc(50% - 38px);
+}
+
+.table-tile .chair.r {
+  right: calc(50% - 38px);
+}
+
+.table-tile .sitter {
+  position: absolute;
+  left: calc(50% - 44px);
+  top: 2px;
+  font-size: 26px;
+  animation: pop-in 0.3s ease-out;
+}
+
+.table-tile.dirty {
+  cursor: pointer;
+  background: #fbe3dc;
+  border-color: var(--bad);
+  animation: wobble 1.2s ease-in-out infinite;
+}
+
+.table-tile.dirty:active .table-top {
+  transform: translate(-50%, -50%) scale(0.9);
+}
+
+.table-tile:disabled {
+  opacity: 1;
+}
+
+.tables-note {
+  text-align: center;
+  color: var(--bad);
+  font-weight: 700;
+  margin-top: -4px;
+  margin-left: 0;
+}
+
+.vessel-pick {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.vessel-pick.bounce {
+  animation: shake 0.3s ease-in-out;
+}
+
+.vessel {
+  border: 2px solid #d8b991;
+  background: #fffaf3;
+  border-radius: 14px;
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.vessel:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.vessel:disabled {
+  opacity: 0.4;
+}
+
+.vessel.bounce {
+  animation: shake 0.3s ease-in-out;
+}
+
+.counter-bar .counter-cup {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
