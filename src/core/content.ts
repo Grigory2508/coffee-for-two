@@ -21,7 +21,7 @@ export type StationId = 'machine' | 'milk' | 'extras';
 /** Отдельные улучшения без уровней (старые machinePro/cozyHall/terrace переехали в уровни кофейни). */
 export type UpgradeId = 'fridge';
 /** Слоты кофейни, которые растут по уровням и видны на иллюстрации. */
-export type CafeSlot = 'machine' | 'vitrine' | 'tables' | 'decor';
+export type CafeSlot = 'machine' | 'vitrine';
 export type Role = 'barista' | 'manager';
 export type MarketingId = 'flyers' | 'blogger';
 export type DecorSlot =
@@ -45,6 +45,13 @@ export type RoomKind = 'hall' | 'kitchen' | 'bedroom';
 export type RegularId = 'mark' | 'vera' | 'tolik';
 
 export const CONFIG = {
+  // премиум-валюта
+  gemsStart: 20,
+  brandCost: 60,
+  dailyGoalActions: 3,
+  dailyGoalGems: 3,
+  brandMaxProposals: 5,
+  cafeNameMax: 24,
   maxPlayers: 2,
   // Бодрость 0..100: тратится на дела, восстанавливается понемногу каждую минуту
   energyMax: 100,
@@ -82,8 +89,8 @@ export const CONFIG = {
   // Квартира: зал открыт сразу, кухня и спальни открываются взносами
   kitchenCost: 1500,
   bedroomCost: 800,
-  shiftGuests: 5,
-  tablesBase: 4,
+  shiftGuests: 8,
+  shiftQueueStart: 3,
   terraceTables: 2,
   // NPC подхватывает роль напарника, если тот не действовал столько времени
   npcCoverAfterMs: 24 * 3600_000,
@@ -227,27 +234,9 @@ export const CAFE_SLOTS: Record<CafeSlot, { name: L10n; icon: string; levels: Sl
       { name: { ru: 'Большая витрина', en: 'Large display' }, desc: { ru: 'Гость за столиком берёт выпечку: +25 🪙', en: 'Dine-in guests buy pastry: +25 🪙' }, cost: 1400 },
     ],
   },
-  tables: {
-    name: { ru: 'Столики', en: 'Tables' },
-    icon: '🪑',
-    levels: [
-      { name: { ru: 'Простые столики', en: 'Simple tables' }, desc: { ru: '4 столика', en: '4 tables' }, cost: 0 },
-      { name: { ru: 'Уютные столики', en: 'Cozy tables' }, desc: { ru: '5 столиков, гости довольнее (+5%)', en: '5 tables, happier guests (+5%)' }, cost: 700 },
-      { name: { ru: 'Веранда', en: 'Terrace' }, desc: { ru: '6 столиков, +1 гость за смену, гости довольнее (+10%)', en: '6 tables, +1 guest per shift, happier guests (+10%)' }, cost: 1500 },
-    ],
-  },
-  decor: {
-    name: { ru: 'Декор зала', en: 'Hall decor' },
-    icon: '🪴',
-    levels: [
-      { name: { ru: 'Голые стены', en: 'Bare walls' }, desc: { ru: 'Пока пусто', en: 'Empty for now' }, cost: 0 },
-      { name: { ru: 'Растения и лампы', en: 'Plants and lamps' }, desc: { ru: 'Гости ждут на 3 с дольше', en: 'Guests wait 3s longer' }, cost: 1000 },
-      { name: { ru: 'Уютный зал', en: 'Cozy hall' }, desc: { ru: 'Гости ждут на 6 с дольше и довольнее (+5%)', en: 'Guests wait 6s longer and are happier (+5%)' }, cost: 2000 },
-    ],
-  },
 };
 
-export const CAFE_SLOT_ORDER: CafeSlot[] = ['machine', 'vitrine', 'tables', 'decor'];
+export const CAFE_SLOT_ORDER: CafeSlot[] = ['machine', 'vitrine'];
 export const SLOT_MAX = 3;
 
 export const ROLES: Record<Role, { name: L10n; icon: string; desc: L10n }> = {
@@ -437,3 +426,131 @@ export const FAKE_CAFES = [
   'Бобы и Бублики', 'Пенка', 'Две чашки', 'Кофе с собой', 'Утро', 'Зерно', 'Тёплый угол',
   'Латте-арт', 'Сахар', 'Корица', 'Мокко', 'Сквер', 'Ваниль', 'Кофейный кот',
 ];
+
+
+// ---------- премиум-валюта ----------
+
+export const GEMS = { icon: '💎', name: { ru: 'Самоцветы', en: 'Gems' } as L10n };
+
+/** Пачки самоцветов за Telegram Stars (цифровые товары в Mini App продаются только за Stars). */
+export const GEM_PACKS: { id: string; gems: number; stars: number; bonus?: number }[] = [
+  { id: 'g60', gems: 60, stars: 50 },
+  { id: 'g150', gems: 150, stars: 110, bonus: 15 },
+  { id: 'g400', gems: 400, stars: 250, bonus: 35 },
+];
+
+// ---------- логотип: только из элементов конструктора ----------
+
+export interface Logo {
+  shape: number;
+  bg: number;
+  fg: number;
+  icon: number;
+  text: string;
+  frame: number;
+}
+
+export const LOGO_SHAPES: L10n[] = [
+  { ru: 'Круг', en: 'Circle' },
+  { ru: 'Щит', en: 'Shield' },
+  { ru: 'Ромб', en: 'Diamond' },
+  { ru: 'Вывеска', en: 'Sign' },
+  { ru: 'Арка', en: 'Arch' },
+];
+export const LOGO_COLORS = ['#6b4226', '#c8873a', '#e8a598', '#6f9e88', '#3f6b8a', '#2e2420', '#f6efe6', '#b8695a', '#8a6fb0', '#e0b43a'];
+export const LOGO_ICONS: L10n[] = [
+  { ru: 'Чашка', en: 'Cup' },
+  { ru: 'Зерно', en: 'Bean' },
+  { ru: 'Кот', en: 'Cat' },
+  { ru: 'Сердце', en: 'Heart' },
+  { ru: 'Звезда', en: 'Star' },
+  { ru: 'Лист', en: 'Leaf' },
+  { ru: 'Луна', en: 'Moon' },
+  { ru: 'Круассан', en: 'Croissant' },
+  { ru: 'Без значка', en: 'No icon' },
+];
+export const LOGO_FRAMES: L10n[] = [
+  { ru: 'Без рамки', en: 'No frame' },
+  { ru: 'Тонкая', en: 'Thin' },
+  { ru: 'Двойная', en: 'Double' },
+  { ru: 'Пунктир', en: 'Dashed' },
+];
+export const LOGO_TEXT_MAX = 2;
+export const DEFAULT_LOGO: Logo = { shape: 0, bg: 0, fg: 6, icon: 0, text: '', frame: 1 };
+
+/** Привести логотип к допустимым значениям (данные приходят от клиента). */
+export function cleanLogo(l: Partial<Logo> | undefined): Logo {
+  const n = (v: unknown, max: number, d: number) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) < max ? (v as number) : d);
+  const text = String(l?.text ?? '')
+    .replace(/[^\p{L}\p{N}&]/gu, '')
+    .toUpperCase()
+    .slice(0, LOGO_TEXT_MAX);
+  return {
+    shape: n(l?.shape, LOGO_SHAPES.length, 0),
+    bg: n(l?.bg, LOGO_COLORS.length, 0),
+    fg: n(l?.fg, LOGO_COLORS.length, 6),
+    icon: n(l?.icon, LOGO_ICONS.length, 0),
+    text: BAD_WORDS.test(text) ? '' : text,
+    frame: n(l?.frame, LOGO_FRAMES.length, 1),
+  };
+}
+
+/** Простейший фильтр брани в названиях (видны всем в рейтингах). Дальше — жалобы и ручная модерация. */
+export const BAD_WORDS = /(ху[йяеёи]|пизд|п[иі]дор|[её]б[аеиу]н|[её]бат|бля[дт]|муда[кч]|шлюх|fuck|shit|cunt|nigg|fag+ot|whore|bitch)/i;
+
+export function cleanCafeName(name: string): string | null {
+  const v = String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, 24);
+  if (!v || BAD_WORDS.test(v)) return null;
+  return v;
+}
+
+// ---------- декор кофейни: как в комнатах, но из бюджета и с эффектом на гостей ----------
+
+export type CafeDecorSlot = 'light' | 'wall' | 'shelf' | 'window' | 'hanging' | 'floor' | 'counter';
+
+/** Положение слоя на сцене кофейни (% от картинки 1024×434): x — центр, w — ширина, bottom/top — опора. */
+export interface ArtPlace {
+  name: string;
+  x: number;
+  w: number;
+  bottom?: number;
+  top?: number;
+}
+
+export interface CafeDecorItem {
+  id: string;
+  slot: CafeDecorSlot;
+  name: L10n;
+  cost: number;
+  /** +мс терпения гостей. */
+  patienceMs: number;
+  /** +к удовлетворённости гостей (0.03 = +3%). */
+  sat: number;
+  art: ArtPlace[];
+}
+
+const COUNTER_Y = 81;
+
+export const CAFE_DECOR_SLOTS: Record<CafeDecorSlot, L10n> = {
+  light: { ru: 'Свет', en: 'Lights' },
+  wall: { ru: 'Стена', en: 'Wall' },
+  shelf: { ru: 'Полка', en: 'Shelf' },
+  window: { ru: 'Подоконник', en: 'Window sill' },
+  hanging: { ru: 'Подвес', en: 'Hanging' },
+  floor: { ru: 'Пол', en: 'Floor' },
+  counter: { ru: 'Стойка', en: 'Counter' },
+};
+export const CAFE_DECOR_ORDER: CafeDecorSlot[] = ['light', 'wall', 'shelf', 'window', 'hanging', 'floor', 'counter'];
+
+export const CAFE_DECOR: CafeDecorItem[] = [
+  { id: 'c-lamps', slot: 'light', name: { ru: 'Две лампы', en: 'Two lamps' }, cost: 400, patienceMs: 1500, sat: 0, art: [{ name: 'decor-lamp', x: 46, w: 4.5, top: 11 }, { name: 'decor-lamp', x: 61, w: 4.5, top: 11 }] },
+  { id: 'c-garland', slot: 'light', name: { ru: 'Гирлянда', en: 'Garland' }, cost: 700, patienceMs: 1500, sat: 0.03, art: [{ name: 'decor-garland', x: 24, w: 30, top: 12 }] },
+  { id: 'c-pic-cup', slot: 'wall', name: { ru: 'Картина с чашкой', en: 'Cup painting' }, cost: 300, patienceMs: 0, sat: 0.02, art: [{ name: 'decor-pic-cup', x: 37.5, w: 4.5, top: 32 }] },
+  { id: 'c-pic-hills', slot: 'wall', name: { ru: 'Пейзаж', en: 'Landscape' }, cost: 500, patienceMs: 0, sat: 0.03, art: [{ name: 'decor-pic-hills', x: 37.5, w: 6, top: 30 }] },
+  { id: 'c-shelf', slot: 'shelf', name: { ru: 'Полка с банками', en: 'Jar shelf' }, cost: 500, patienceMs: 1000, sat: 0.01, art: [{ name: 'decor-shelf', x: 25, w: 12, bottom: COUNTER_Y }] },
+  { id: 'c-sillplant', slot: 'window', name: { ru: 'Цветок на окне', en: 'Window plant' }, cost: 250, patienceMs: 1000, sat: 0, art: [{ name: 'decor-sillplant', x: 6, w: 6, bottom: COUNTER_Y }] },
+  { id: 'c-hanging', slot: 'hanging', name: { ru: 'Подвесное растение', en: 'Hanging plant' }, cost: 350, patienceMs: 1500, sat: 0, art: [{ name: 'decor-hanging', x: 2.5, w: 6, top: 11 }] },
+  { id: 'c-floorplant', slot: 'floor', name: { ru: 'Пальма в кадке', en: 'Potted palm' }, cost: 500, patienceMs: 2000, sat: 0, art: [{ name: 'decor-floorplant', x: 58, w: 9, bottom: 101 }] },
+  { id: 'c-succulent', slot: 'counter', name: { ru: 'Суккулент', en: 'Succulent' }, cost: 200, patienceMs: 500, sat: 0.01, art: [{ name: 'decor-succulent', x: 46, w: 4, bottom: COUNTER_Y }] },
+];
+export const CAFE_DECOR_BY_ID: Record<string, CafeDecorItem> = Object.fromEntries(CAFE_DECOR.map((d) => [d.id, d]));

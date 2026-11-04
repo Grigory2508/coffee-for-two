@@ -1,4 +1,4 @@
-import type { CafeSlot, DecorSlot, DrinkId, MarketingId, RegularId, Role, RoomKind, StockId, UpgradeId } from './content.ts';
+import type { CafeDecorSlot, CafeSlot, DecorSlot, Logo, DrinkId, MarketingId, RegularId, Role, RoomKind, StockId, UpgradeId } from './content.ts';
 export type { Role };
 
 export type PlayerId = string;
@@ -19,6 +19,12 @@ export interface Player {
   /** Сколько радости от записок и подарков получено в этот день (лимит в сутки). */
   socialDay: string;
   socialJoy: number;
+  /** Премиум-валюта: зарабатывается за дневную цель и покупается за Stars. Личная. */
+  gems: number;
+  /** Дневная цель: N действий по роли → самоцветы. */
+  daily: { day: string; actions: number; done: boolean };
+  /** Личные очки для рейтинга внутри команды. */
+  points: { day: string; today: number; week: string; thisWeek: number; all: number };
   baristaXp: number;
   managerXp: number;
   joinedAt: number;
@@ -41,7 +47,8 @@ export interface ShiftPlan {
   startedAt: number;
   guests: ShiftGuest[];
   catInCafe: boolean;
-  tables: number;
+  /** Устаревшее: столиков на смене больше нет. */
+  tables?: number;
   tipBonus: number;
   /** Счастье баристы на начало смены — от него зависят оценки гостей. */
   happy?: number;
@@ -64,6 +71,19 @@ export interface HomeRoom {
   fund: number;
   owned: string[];
   placed: Partial<Record<DecorSlot, string>>;
+}
+
+/** Предложение сменить название и/или логотип: черновик → менеджер выставляет (платит) → одобряют все. */
+export interface BrandProposal {
+  id: string;
+  by: PlayerId;
+  at: number;
+  name: string;
+  logo: Logo;
+  status: 'draft' | 'voting';
+  submittedBy?: PlayerId;
+  paid?: number;
+  approvals: PlayerId[];
 }
 
 export interface Application {
@@ -117,7 +137,14 @@ export type LogKind =
   | 'regular_story'
   | 'stock_low'
   | 'cat_hungry'
-  | 'renamed';
+  | 'renamed'
+  | 'brand_proposed'
+  | 'brand_submitted'
+  | 'brand_rejected'
+  | 'brand_changed'
+  | 'gems_daily'
+  | 'gems_bought'
+  | 'cafe_decor_bought';
 
 export interface LogEntry {
   id: number;
@@ -134,6 +161,8 @@ export interface CafeState {
   inviteKey: string; // меняется при смене напарника — старые приглашения перестают работать
   npcName: string;
   name: string;
+  logo: Logo;
+  brands: BrandProposal[];
   version: number;
   createdAt: number;
   updatedAt: number;
@@ -144,8 +173,10 @@ export interface CafeState {
   /** Меню дня: что заказывают гости (подмножество menu, до CONFIG.menuSlots). */
   featured: DrinkId[];
   upgrades: Partial<Record<UpgradeId, true>>;
-  /** Уровни кофейни 1..3: машина, витрина, столики, декор. */
+  /** Уровни кофейни 1..3: машина и витрина. */
   levels: Record<CafeSlot, number>;
+  /** Декор зала кофейни (покупается из бюджета, обставляется как комнаты). */
+  cafeDecor: { owned: string[]; placed: Partial<Record<CafeDecorSlot, string>> };
   ratingRecent: number[]; // удовлетворённость 0..1 последних гостей
   regulars: Partial<Record<RegularId, { visits: number; seenBy: PlayerId[] }>>;
   activeShifts: Record<PlayerId, ShiftPlan>;
@@ -171,7 +202,9 @@ export interface CafeState {
   log: LogEntry[];
   logSeq: number;
   week: { id: string; points: number };
-  stats: { shifts: number; guestsServed: number; guestsLost: number; earned: number };
+  /** Очки за сегодняшний день (UTC) — для дневного рейтинга. */
+  today: { day: string; points: number };
+  stats: { shifts: number; guestsServed: number; guestsLost: number; earned: number; points: number };
   nextNpcAt: number;
   alerts: { stockLowAt: number; catHungryAt: number };
 }
@@ -186,7 +219,13 @@ export type Command =
   | { type: 'removeStaff'; id: PlayerId }
   | { type: 'enterOffice' }
   | { type: 'leaveOffice' }
-  | { type: 'rename'; name: string }
+  | { type: 'proposeBrand'; name: string; logo: Logo }
+  | { type: 'submitBrand'; id: string }
+  | { type: 'voteBrand'; id: string; yes: boolean }
+  | { type: 'dropBrand'; id: string }
+  | { type: 'buyCafeDecor'; id: string }
+  | { type: 'placeCafeDecor'; slot: CafeDecorSlot; id: string | null }
+  | { type: 'grantGems'; player: PlayerId; amount: number; ref: string }
   | { type: 'startShift' }
   | { type: 'finishShift'; results: GuestResult[]; cleanliness?: number }
   | { type: 'abandonShift' }
@@ -212,7 +251,8 @@ export type Command =
   | { type: 'postNote'; text: string; sticker?: string }
   | { type: 'seen' }
   | { type: 'debugRefill' }
-  | { type: 'debugUnlockRoom' };
+  | { type: 'debugUnlockRoom' }
+  | { type: 'debugGems'; pack: string };
 
 export interface CommandEnvelope {
   actor: PlayerId;

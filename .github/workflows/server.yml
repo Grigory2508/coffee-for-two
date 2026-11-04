@@ -55,6 +55,19 @@ jobs:
             CRON_SECRET="${{ secrets.CRON_SECRET }}" \
             ALLOW_DEBUG="${{ vars.ALLOW_DEBUG || '0' }}"
 
+      - name: Apply database migrations
+        if: steps.cfg.outputs.ready == 'true'
+        # Миграции идемпотентны (if not exists) — выполняем все через Management API при каждом деплое
+        run: |
+          for f in supabase/migrations/*.sql; do
+            echo "→ $f"
+            body=$(jq -Rs '{query: .}' < "$f")
+            code=$(curl -sS -o /tmp/mig.json -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
+              -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H 'Content-Type: application/json' -d "$body")
+            cat /tmp/mig.json; echo
+            [ "$code" -lt 300 ] || { echo "::error::Миграция $f не применилась ($code)"; exit 1; }
+          done
+
       - name: Deploy functions
         if: steps.cfg.outputs.ready == 'true'
         run: |

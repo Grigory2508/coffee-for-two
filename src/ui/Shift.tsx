@@ -1,21 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { COMPONENTS, COMPONENT_ORDER, CONFIG, DRINKS, REGULARS, STATIONS, type ComponentId, type StationId, type StockId } from '../core/content';
-import { recipeUsage, slotEffects, slotLevel } from '../core/engine';
+import { recipeUsage, slotEffects } from '../core/engine';
 import type { GuestResult, ShiftPlan } from '../core/types';
 import { L, t } from '../i18n';
 import { now as clockNow } from '../platform/clock';
 import { tg } from '../platform/telegram';
 import { CupSection } from './cup';
-import { CompIcon, TableArt } from './icons';
+import { CafeArt, CompIcon } from './icons';
 import { useGame } from './game';
 
-// Смена: 75 секунд, только тапы. У стойки один гость; следующий подходит, когда этого обслужили
-// (или он ушёл). Сначала ставишь посуду — чашку (здесь) или стакан (с собой), потом ингредиенты.
+// Смена: 75 секунд, только тапы. У стойки один гость, за ним видна очередь из 2–3 человек с их заказами;
+// следующий подходит, когда этого обслужили (или он ушёл). Столиков и уборки нет — всё внимание сборке. Сначала ставишь посуду — чашку (здесь) или стакан (с собой), потом ингредиенты.
 // Ненужный ингредиент отскакивает. Эспрессо и пенка готовятся с таймером. «Подать» всегда на одном месте.
 
 const GUEST_FACES = ['🧑', '👩', '👨‍🦱', '👩‍🦰', '🧔', '👱‍♀️', '🧑‍🎓', '👨‍💼'];
 const NEXT_GAP_MS = 700;
-const TABLE_STAY_MS = 6000;
+const QUEUE_SHOWN = 3;
 // Станции снизу вверх по частоте: эспрессо почти в каждом напитке — ближе всего к большому пальцу
 const STATION_STACK: StationId[] = ['extras', 'milk', 'machine'];
 
@@ -23,12 +23,6 @@ interface Popup {
   id: number;
   text: string;
   good: boolean;
-}
-
-interface Table {
-  status: 'free' | 'busy' | 'dirty';
-  until: number;
-  face: string;
 }
 
 type Vessel = 'mug' | 'paper';
@@ -58,10 +52,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const [streak, setStreak] = useState(0);
   const [coins, setCoins] = useState(0);
   const finished = useRef(false);
-  const [tables, setTables] = useState<Table[]>(() => Array.from({ length: plan.tables ?? CONFIG.tablesBase }, () => ({ status: 'free', until: 0, face: '' })));
-  const cleanSum = useRef(0);
-  const cleanSamples = useRef(0);
-  const cleanliness = () => (cleanSamples.current ? cleanSum.current / cleanSamples.current : 1);
+  const cleanliness = () => 1;
 
   const fx = slotEffects(state);
   const heads: Record<StationId, number> = { machine: fx.machineHeads, milk: 1, extras: 99 };
@@ -89,32 +80,6 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     setCup({ ...cup, items: [...cup.items, ...done.map((b) => b.c)], brewing: cup.brewing.filter((b) => b.until > elapsed) });
     tg.haptic('tap');
   }, [elapsed]);
-
-  // Столики: гости уходят и оставляют посуду; считаем чистоту зала
-  useEffect(() => {
-    if (finished.current) return;
-    if (tables.some((tb) => tb.status === 'busy' && tb.until <= elapsed)) {
-      setTables((ts) => ts.map((tb) => (tb.status === 'busy' && tb.until <= elapsed ? { ...tb, status: 'dirty' } : tb)));
-    }
-    if (elapsed >= (plan.guests[0]?.arriveMs ?? 0)) {
-      cleanSum.current += tables.filter((tb) => tb.status !== 'dirty').length / tables.length;
-      cleanSamples.current += 1;
-    }
-  }, [elapsed]);
-
-  function wipe(i: number) {
-    if (finished.current) return;
-    tg.haptic('tap');
-    setTables((ts) => ts.map((tb, k) => (k === i && tb.status === 'dirty' ? { status: 'free', until: 0, face: '' } : tb)));
-  }
-
-  function seat(face: string) {
-    setTables((ts) => {
-      const idx = ts.findIndex((tb) => tb.status === 'free');
-      if (idx < 0) return ts;
-      return ts.map((tb, k) => (k === idx ? { status: 'busy', until: elapsed + TABLE_STAY_MS, face } : tb));
-    });
-  }
 
   // Очередь: кто пришёл и ещё не обслужен; к стойке подходит первый, когда она свободна
   const waiting = useMemo(
@@ -246,8 +211,6 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     setCup(EMPTY);
     setCurrent(null);
     setNextAt(elapsed + NEXT_GAP_MS);
-    // с собой — уходит со стаканом, здесь — садится за столик
-    if (!g.takeaway) seat(face(i));
     if (enough) {
       tg.haptic('success');
       setStreak(streak + 1);
@@ -328,24 +291,27 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         ) : (
           <div class="guest-card empty muted small">{upcoming || queue.length ? t('nextGuest') : '…'}</div>
         )}
-        <div class="queue-line">
-          {queue.slice(0, 4).map((q) => (
-            <span class="queue-face">{face(q.i)}</span>
-          ))}
-          {queue.length > 4 && <span class="queue-face more">+{queue.length - 4}</span>}
-          {queue.length > 0 && <span class="queue-label">{t('inQueue')}</span>}
-        </div>
+        {queue.length > 0 && (
+          <div class="queue-cards">
+            {queue.slice(0, QUEUE_SHOWN).map((q) => {
+              const g = plan.guests[q.i];
+              return (
+                <div class="queue-card">
+                  <span class="queue-face">{face(q.i)}</span>
+                  <span class="queue-drink">{L(DRINKS[g.order].name)}</span>
+                  <span class={`queue-go ${g.takeaway ? 'away' : ''}`}>{g.takeaway ? '🥡' : '☕'}</span>
+                </div>
+              );
+            })}
+            {queue.length > QUEUE_SHOWN && <div class="queue-more">+{queue.length - QUEUE_SHOWN}</div>}
+          </div>
+        )}
       </div>
 
-      {/* Столики в два ряда: тап по грязному — протереть */}
-      <div class={`tables-grid n${tables.length}`}>
-        {tables.map((tb, i) => (
-          <button class={`table-tile ${tb.status}`} onClick={() => wipe(i)} disabled={tb.status !== 'dirty'} aria-label={t('tables')}>
-            <TableArt level={slotLevel(state, 'tables')} status={tb.status} face={tb.face} />
-          </button>
-        ))}
+      {/* Зал кофейни с декором — фон между гостем и прилавком (столиков и уборки больше нет) */}
+      <div class="shift-scene">
+        <CafeArt levels={state.levels} decor={state.cafeDecor?.placed} />
       </div>
-      <div class="tables-note small">{tables.some((tb) => tb.status === 'dirty') ? t('tablesWipe') : '\u00a0'}</div>
 
       {/* Прилавок: посуда, чашка в разрезе, «Вылить» и «Подать» всегда здесь */}
       <div class={`counter-bar ${complete && cup.vessel === wantVessel ? 'ready' : ''}`}>

@@ -1,4 +1,6 @@
-import type { Role } from '../core/content';
+import { FAKE_CAFES, LOGO_COLORS, LOGO_ICONS, LOGO_SHAPES, type Logo, type Role } from '../core/content';
+import { dayKey, weekId } from '../core/engine';
+import { hashString, mulberry32 } from '../core/rng';
 import { apply, createCafe, migrate, type ApplyResult } from '../core/engine';
 import { peekOf, type CafePeek } from '../core/peek';
 import { GameError, type CafeState, type Command } from '../core/types';
@@ -10,7 +12,7 @@ import { tg } from '../platform/telegram';
 export interface Backend {
   readonly mode: 'local' | 'remote';
   load(): Promise<CafeState | null>;
-  create(cafeName: string, npcName: string, role: Role): Promise<CafeState>;
+  create(cafeName: string, npcName: string, role: Role, logo?: Logo): Promise<CafeState>;
   /** Подать заявку в кофейню с выбранной ролью. */
   apply(invite: Invite, role: Role): Promise<void>;
   cancelApplication(invite: Invite): Promise<void>;
@@ -21,6 +23,24 @@ export interface Backend {
   send(cmd: Command): Promise<ApplyResult>;
   subscribe(cb: (s: CafeState) => void): () => void;
   leave(): Promise<void>;
+  /** Рейтинги кофеен: сегодня, неделя, всё время. */
+  ratings(): Promise<Ratings>;
+  /** Купить пачку самоцветов за Stars. Возвращает статус оплаты. */
+  buyGems(pack: string): Promise<'paid' | 'cancelled' | 'failed' | 'pending'>;
+}
+
+export interface RatingRow {
+  code: string;
+  name: string;
+  logo: Logo | null;
+  points: number;
+  you: boolean;
+}
+
+export interface Ratings {
+  today: RatingRow[];
+  week: RatingRow[];
+  all: RatingRow[];
 }
 
 export interface Invite {
@@ -116,8 +136,8 @@ export class LocalBackend implements Backend {
     return s;
   }
 
-  async create(cafeName: string, npcName: string, role: Role) {
-    const s = createCafe({ code: newCafeCode(), owner: { id: this.me.id, name: this.me.name }, role, npcName, cafeName, now: now() });
+  async create(cafeName: string, npcName: string, role: Role, logo?: Logo) {
+    const s = createCafe({ code: newCafeCode(), owner: { id: this.me.id, name: this.me.name }, role, npcName, cafeName, logo, now: now() });
     this.write(s);
     localStorage.setItem(memberKey(this.me.id), s.code);
     return s;
@@ -180,6 +200,41 @@ export class LocalBackend implements Backend {
   async leave() {
     localStorage.removeItem(memberKey(this.me.id));
   }
+
+  async ratings() {
+    // Без сервера соседи — сгенерированные кофейни (как раньше в лиге недели)
+    const code = this.myCode();
+    const s = code ? this.read(code) : null;
+    return localRatings(s, now());
+  }
+
+  async buyGems(pack: string) {
+    // Без Telegram оплату имитируем отладочной командой
+    await this.send({ type: 'debugGems', pack });
+    return 'paid' as const;
+  }
+}
+
+function localRatings(s: CafeState | null, at: number): Ratings {
+  const make = (seedKey: string, scale: number, own: number): RatingRow[] => {
+    const rnd = mulberry32(hashString(seedKey));
+    const rows: RatingRow[] = FAKE_CAFES.slice(0, 14).map((name, i) => ({
+      code: `fake${i}`,
+      name,
+      logo: { shape: Math.floor(rnd() * LOGO_SHAPES.length), bg: Math.floor(rnd() * LOGO_COLORS.length), fg: 6, icon: Math.floor(rnd() * (LOGO_ICONS.length - 1)), text: '', frame: 1 },
+      points: Math.round((0.1 + rnd()) * scale),
+      you: false,
+    }));
+    if (s) rows.push({ code: s.code, name: s.name, logo: s.logo, points: own, you: true });
+    return rows.sort((a, b) => b.points - a.points);
+  };
+  const day = dayKey(at);
+  const wk = weekId(at);
+  return {
+    today: make(`d:${day}`, 120, s && s.today?.day === day ? s.today.points : 0),
+    week: make(`w:${wk}`, 600, s && s.week.id === wk ? s.week.points : 0),
+    all: make('all', 4000, s?.stats.points ?? 0),
+  };
 }
 
 // ---------- серверный режим: Supabase Edge Function (supabase/functions/api) ----------
@@ -205,8 +260,8 @@ export class RemoteBackend implements Backend {
     return r.state;
   }
 
-  async create(cafeName: string, npcName: string, role: Role) {
-    const r = await this.call<{ state: CafeState }>({ op: 'create', cafeName, npcName, role });
+  async create(cafeName: string, npcName: string, role: Role, logo?: Logo) {
+    const r = await this.call<{ state: CafeState }>({ op: 'create', cafeName, npcName, role, logo });
     this.last = r.state;
     return r.state;
   }
@@ -255,6 +310,15 @@ export class RemoteBackend implements Backend {
 
   async leave() {
     await this.call({ op: 'leave' });
+  }
+
+  async ratings() {
+    return this.call<Ratings>({ op: 'ratings' });
+  }
+
+  async buyGems(pack: string) {
+    const r = await this.call<{ url: string }>({ op: 'invoice', pack });
+    return tg.openInvoice(r.url);
   }
 }
 

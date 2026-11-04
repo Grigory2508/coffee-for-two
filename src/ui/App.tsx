@@ -12,11 +12,14 @@ import { tg } from '../platform/telegram';
 import { CafeArt } from './icons';
 import { describeLog, GameCtx, timeAgo, useGame, type Game } from './game';
 import { CafeInfoTab, CounterTab, Header, OfficeTab, RoomTab, ShiftResult, TeamTab, teamBadge } from './screens';
+import { RatingsTab } from './social';
+import { BrandEditor } from './logo';
+import { DEFAULT_LOGO, cleanCafeName, type Logo } from '../core/content';
 import { digestFor, getPlayer, vitalsNow } from '../core/engine';
 import { lowStock } from './stock';
 import { Shift } from './Shift';
 
-type Tab = 'work' | 'cafe' | 'home' | 'team';
+type Tab = 'work' | 'cafe' | 'home' | 'top' | 'team';
 type Phase =
   | { kind: 'loading' }
   | { kind: 'welcome' }
@@ -221,9 +224,9 @@ export function App() {
   if (phase.kind === 'welcome')
     return (
       <Welcome
-        onCreate={async (name, role) => {
+        onCreate={async (name, role, logo) => {
           try {
-            const s = await backend.create(name, lang() === 'ru' ? 'Сосед Артур' : 'Neighbour Arthur', role);
+            const s = await backend.create(name, lang() === 'ru' ? 'Сосед Артур' : 'Neighbour Arthur', role, logo);
             track('cafe_created', { role });
             setState(s);
             setPhase({ kind: 'game' });
@@ -296,6 +299,10 @@ export function App() {
     backend,
     send,
     toast,
+    refresh: async () => {
+      const st = await backend.load().catch(() => null);
+      if (st) setState(st);
+    },
     onLeft: () => {
       setShift(null);
       setResult(null);
@@ -324,7 +331,7 @@ export function App() {
         ) : (
           <>
             <Header
-              onRating={() => go('cafe')}
+              onRating={() => go('top')}
               onAlert={() => go(isManager ? 'work' : 'team')}
               extra={config.debug ? <DebugPanel onReset={() => location.reload()} /> : null}
             />
@@ -345,6 +352,7 @@ export function App() {
                   {tab === 'work' && (isManager ? <OfficeTab /> : <CounterTab onStartShift={startShift} />)}
                   {tab === 'cafe' && <CafeInfoTab />}
                   {tab === 'home' && <RoomTab />}
+                  {tab === 'top' && <RatingsTab />}
                   {tab === 'team' && <TeamTab />}
                 </>
               )}
@@ -356,6 +364,7 @@ export function App() {
                     ['work', isManager ? '📋' : '☕', isManager ? t('tabOffice') : t('tabCounter'), lowN],
                     ['cafe', '🏪', t('tabCafe'), 0],
                     ['home', '🏠', t('tabHome'), 0],
+                    ['top', '🏆', t('tabTop'), 0],
                     ['team', '💬', t('tabTeam'), tBadge],
                   ] as [Tab, string, string, number][]
                 ).map(([id, icon, label, badge]) => (
@@ -404,17 +413,27 @@ export function App() {
 
 // ---------- онбординг ----------
 
-function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role) => void; toastText: string | null }) {
+function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role, logo: Logo) => void; toastText: string | null }) {
   const [name, setName] = useState(t('cafeNameDefault'));
+  const [logo, setLogo] = useState<Logo>(DEFAULT_LOGO);
   const [role, setRole] = useState<Role>('barista');
+  const valid = !!cleanCafeName(name);
   return (
     <div class="app onboarding">
       <CafeArt />
       <div class="onb-body">
         <h1>{t('welcomeTitle')}</h1>
         <p class="muted">{t('welcomeText')}</p>
-        <label class="small">{t('cafeNameLabel')}</label>
-        <input class="input" value={name} maxLength={24} onInput={(e) => setName((e.target as HTMLInputElement).value)} />
+        <label class="small">{t('brandCreateLabel')}</label>
+        <BrandEditor
+          name={name}
+          logo={logo}
+          onChange={(n, l) => {
+            setName(n);
+            setLogo(l);
+          }}
+        />
+        {!valid && name.trim() && <div class="small danger-text">{t('err_bad_name')}</div>}
         <label class="small">{t('roleChoose')}</label>
         <div class="role-cards">
           {(['barista', 'manager'] as Role[]).map((r) => (
@@ -426,7 +445,7 @@ function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role)
           ))}
         </div>
         <p class="muted small">{t('roleChooseHint')}</p>
-        <button class="btn primary big wide" disabled={!name.trim()} onClick={() => onCreate(name.trim(), role)}>
+        <button class="btn primary big wide" disabled={!valid} onClick={() => onCreate(name.trim(), role, logo)}>
           {t('openCafe')}
         </button>
       </div>

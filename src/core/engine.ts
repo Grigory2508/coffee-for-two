@@ -13,8 +13,15 @@ import {
   UPGRADES,
   CAFE_SLOTS,
   SLOT_MAX,
+  CAFE_DECOR_BY_ID,
+  DEFAULT_LOGO,
+  GEM_PACKS,
+  cleanCafeName,
+  cleanLogo,
+  type CafeDecorSlot,
   ROOM_SLOTS,
   type CafeSlot,
+  type Logo,
   otherRole,
   type DrinkId,
   type RegularId,
@@ -34,6 +41,7 @@ import {
   type PlayerId,
   type ShiftGuest,
   type ShiftPlan,
+  type BrandProposal,
   type HomeRoom,
 } from './types.ts';
 
@@ -308,26 +316,26 @@ export function slotLevel(s: CafeState, slot: CafeSlot): number {
 export function slotEffects(s: CafeState) {
   const m = slotLevel(s, 'machine');
   const v = slotLevel(s, 'vitrine');
-  const tb = slotLevel(s, 'tables');
-  const d = slotLevel(s, 'decor');
+  let decorPatience = 0;
+  let decorSat = 0;
+  for (const id of Object.values(s.cafeDecor?.placed ?? {})) {
+    const d = id ? CAFE_DECOR_BY_ID[id] : undefined;
+    if (!d) continue;
+    decorPatience += d.patienceMs;
+    decorSat += d.sat;
+  }
   return {
     machineHeads: m >= 2 ? 2 : 1,
     shotSpeed: m >= 3 ? 2 : 1, // во сколько раз быстрее варится эспрессо
     tipMult: [1, 1.15, 1.25][m - 1],
     pastry: [0, 12, 25][v - 1], // монет с гостя, который пьёт здесь
-    tables: CONFIG.tablesBase + (tb - 1), // 4, 5, 6
-    extraGuests: tb >= 3 ? 1 : 0,
-    satBonus: [0, 0.05, 0.1][tb - 1] + [0, 0, 0.05][d - 1],
-    patienceMs: [0, 3000, 6000][d - 1],
+    satBonus: decorSat,
+    patienceMs: decorPatience,
   };
 }
 
-export function tablesCount(s: CafeState): number {
-  return slotEffects(s).tables;
-}
-
 export function guestsPerShift(s: CafeState): number {
-  return CONFIG.shiftGuests + slotEffects(s).extraGuests + (s.marketing?.guests ?? 0);
+  return CONFIG.shiftGuests + (s.marketing?.guests ?? 0);
 }
 
 export function recipeUsage(drink: DrinkId): Partial<Record<StockId, number>> {
@@ -387,6 +395,9 @@ function newPlayer(id: PlayerId, name: string, slot: number, isNpc: boolean, rol
     wallet: isNpc ? 0 : CONFIG.walletStart,
     socialDay: '',
     socialJoy: 0,
+    gems: isNpc ? 0 : CONFIG.gemsStart,
+    daily: { day: '', actions: 0, done: false },
+    points: { day: '', today: 0, week: '', thisWeek: 0, all: 0 },
     baristaXp: 0,
     managerXp: 0,
     joinedAt: now,
@@ -403,6 +414,7 @@ export function createCafe(opts: {
   role?: Role;
   npcName: string;
   cafeName: string;
+  logo?: Logo;
   now: number;
 }): CafeState {
   const { now } = opts;
@@ -413,7 +425,9 @@ export function createCafe(opts: {
     ownerId: opts.owner.id,
     inviteKey: newInviteKey(`${opts.code}:${now}`),
     npcName: opts.npcName,
-    name: opts.cafeName,
+    name: cleanCafeName(opts.cafeName) ?? 'Наше место',
+    logo: cleanLogo(opts.logo ?? DEFAULT_LOGO),
+    brands: [],
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -423,7 +437,8 @@ export function createCafe(opts: {
     menu: [...START_MENU],
     featured: [...START_MENU],
     upgrades: {},
-    levels: { machine: 1, vitrine: 1, tables: 1, decor: 1 },
+    levels: { machine: 1, vitrine: 1 },
+    cafeDecor: { owned: [], placed: {} },
     ratingRecent: [],
     regulars: {},
     activeShifts: {},
@@ -437,7 +452,8 @@ export function createCafe(opts: {
     log: [],
     logSeq: 0,
     week: { id: weekId(now), points: 0 },
-    stats: { shifts: 0, guestsServed: 0, guestsLost: 0, earned: 0 },
+    today: { day: dayKey(now), points: 0 },
+    stats: { shifts: 0, guestsServed: 0, guestsLost: 0, earned: 0, points: 0 },
     nextNpcAt: now + CONFIG.npcShiftEveryMs,
     alerts: { stockLowAt: 0, catHungryAt: 0 },
   };
@@ -478,7 +494,7 @@ function npcShift(s: CafeState, at: number, covering: boolean) {
   }
   payout(s, earned);
   s.stats.earned += earned;
-  s.week.points += served * 6;
+  addPoints(s, null, served * 6, at);
   addLog(s, at, NPC_ID, covering ? 'npc_cover' : 'npc_shift', { role: 'barista', earned, served });
 }
 
@@ -575,7 +591,8 @@ export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): Shift
     guests.push({
       order: pick(rnd, todayMenu(s)),
       patienceMs: patience + Math.round(rnd() * 4000),
-      arriveMs: Math.round((i * span) / n + rnd() * 2500),
+      // Первые трое приходят сразу — у стойки с начала смены очередь; дальше поток ровный
+      arriveMs: i < CONFIG.shiftQueueStart ? i * 600 : Math.round(((i - CONFIG.shiftQueueStart + 1) * span) / (n - CONFIG.shiftQueueStart + 1) + rnd() * 2500),
     });
   }
   // Постоянный гость: следующий по очереди незаконченной истории
@@ -590,7 +607,7 @@ export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): Shift
   }
   // С собой или здесь: постоянные гости всегда садятся за столик (их истории — за столиком)
   for (const g of guests) g.takeaway = !g.regular && rnd() < CONFIG.takeawayShare;
-  return { seed, startedAt: now, guests, catInCafe: catInCafe(s), tables: tablesCount(s), tipBonus: s.marketing?.tipBonus ?? 0 };
+  return { seed, startedAt: now, guests, catInCafe: catInCafe(s), tipBonus: s.marketing?.tipBonus ?? 0 };
 }
 
 export interface ShiftSummary {
@@ -619,7 +636,9 @@ export function tipFor(s: CafeState, p: Player, drink: DrinkId, waitMs: number, 
 
 function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: GuestResult[], cleanlinessIn: number | undefined, at: number): ShiftSummary {
   const p = getPlayer(s, actor)!;
-  const cleanliness = Math.max(0, Math.min(1, Number.isFinite(cleanlinessIn) ? Number(cleanlinessIn) : 1));
+  // Столиков и уборки на смене больше нет — чистота всегда полная (параметр оставлен для старых клиентов)
+  void cleanlinessIn;
+  const cleanliness = 1;
   const byIdx = new Map<number, GuestResult>();
   for (const r of results) {
     if (Number.isInteger(r.i) && r.i >= 0 && r.i < plan.guests.length && !byIdx.has(r.i)) byIdx.set(r.i, r);
@@ -670,8 +689,7 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
       sum.left += 1;
       s.stats.guestsLost += 1;
     }
-    // Грязные столики портят впечатление; счастливый бариста обслуживает лучше (±18%)
-    sat *= 0.8 + 0.2 * cleanliness;
+    // Счастливый бариста обслуживает лучше (±18%)
     if (outcome !== 'left') sat *= happyRatingMult(plan.happy ?? 50);
     pushRating(s, sat);
     sum.points += Math.round(sat * 10 * coop);
@@ -683,7 +701,8 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
   s.stats.earned += sum.earned;
   s.stats.guestsServed += sum.served;
   s.stats.shifts += 1;
-  s.week.points += sum.points;
+  addPoints(s, p, sum.points, at);
+  dailyProgress(s, p, at);
   addLog(s, at, actor, 'shift_done', { earned: sum.earned, served: sum.served, total: plan.guests.length });
   return sum;
 }
@@ -694,6 +713,62 @@ export interface ApplyResult {
   state: CafeState;
   shiftPlan?: ShiftPlan;
   summary?: ShiftSummary;
+}
+
+/** Очки кофейни (день, неделя, всё время) и личные очки игрока для рейтинга внутри команды. */
+function addPoints(s: CafeState, p: Player | null, pts: number, at: number) {
+  const day = dayKey(at);
+  const wk = weekId(at);
+  if (s.today?.day !== day) s.today = { day, points: 0 };
+  if (s.week.id !== wk) s.week = { id: wk, points: 0 };
+  s.today.points += pts;
+  s.week.points += pts;
+  s.stats.points = (s.stats.points ?? 0) + pts;
+  if (!p) return;
+  const pp = p.points;
+  if (pp.day !== day) {
+    pp.day = day;
+    pp.today = 0;
+  }
+  if (pp.week !== wk) {
+    pp.week = wk;
+    pp.thisWeek = 0;
+  }
+  pp.today += pts;
+  pp.thisWeek += pts;
+  pp.all += pts;
+}
+
+/** Дневная цель: N дел по роли (смены, поездки, улучшения, реклама) → самоцветы. */
+function dailyProgress(s: CafeState, p: Player, at: number) {
+  const day = dayKey(at);
+  if (p.daily.day !== day) p.daily = { day, actions: 0, done: false };
+  p.daily.actions += 1;
+  if (!p.daily.done && p.daily.actions >= CONFIG.dailyGoalActions) {
+    p.daily.done = true;
+    p.gems += CONFIG.dailyGoalGems;
+    addLog(s, at, p.id, 'gems_daily', { gems: CONFIG.dailyGoalGems });
+  }
+}
+
+/** Личные очки за задачи управляющего: 4 очка за дело. */
+function managerTaskDone(s: CafeState, p: Player, at: number) {
+  addPoints(s, p, 4, at);
+  dailyProgress(s, p, at);
+}
+
+function requireGems(p: Player, cost: number) {
+  if ((p.gems ?? 0) < cost) throw new GameError('no_gems', { need: cost - (p.gems ?? 0) });
+}
+
+/** Сменить вывеску, если предложение одобрили все текущие сотрудники. */
+function tryBrand(s: CafeState, b: BrandProposal, at: number) {
+  if (b.status !== 'voting') return;
+  if (!humans(s).every((h) => b.approvals.includes(h.id))) return;
+  s.name = b.name;
+  s.logo = b.logo;
+  s.brands = s.brands.filter((x) => x.id !== b.id);
+  addLog(s, at, 'system', 'brand_changed', { name: b.name });
 }
 
 function markDay(p: Player, at: number) {
@@ -733,6 +808,17 @@ function removePlayer(s: CafeState, playerId: PlayerId, at: number) {
   syncNpc(s, at);
   // Если ушёл последний, кто не одобрил заявку, — она проходит
   for (const a of [...s.applications]) tryFinalize(s, a.id, at);
+  for (const b of [...s.brands]) {
+    if (b.submittedBy === playerId && b.status === 'voting') {
+      // Выставивший ушёл: голосование снимается, самоцветы возвращать некому
+      b.status = 'draft';
+      b.approvals = [];
+      delete b.submittedBy;
+      delete b.paid;
+    }
+    b.approvals = b.approvals.filter((x) => x !== playerId);
+    tryBrand(s, b, at);
+  }
 }
 
 function checkCanAdd(s: CafeState, role: Role) {
@@ -809,6 +895,19 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     return out;
   }
 
+  if (cmd.type === 'grantGems') {
+    // Только сервер (после успешной оплаты Stars) — клиент эту команду отправить не может
+    if (actor !== 'system') throw new GameError('forbidden');
+    const target = getPlayer(s, cmd.player);
+    if (!target || target.isNpc) throw new GameError('not_member');
+    const amount = Math.floor(Number(cmd.amount) || 0);
+    if (amount <= 0) throw new GameError('bad_amount');
+    target.gems = (target.gems ?? 0) + amount;
+    addLog(s, at, target.id, 'gems_bought', { gems: amount });
+    bump(s, at);
+    return out;
+  }
+
   const p = getPlayer(s, actor);
   if (!p || p.isNpc) throw new GameError('not_member');
   if (MANAGER_COMMANDS.has(cmd.type)) {
@@ -819,11 +918,79 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
   if (cmd.type !== 'seen') p.lastActionAt = at;
 
   switch (cmd.type) {
-    case 'rename': {
-      const name = cmd.name.trim().slice(0, 24);
+    case 'proposeBrand': {
+      const name = cleanCafeName(cmd.name);
       if (!name) throw new GameError('bad_name');
-      s.name = name;
-      addLog(s, at, actor, 'renamed', { name });
+      const logo = cleanLogo(cmd.logo);
+      if (name === s.name && JSON.stringify(logo) === JSON.stringify(s.logo)) throw new GameError('brand_same');
+      if (s.brands.length >= CONFIG.brandMaxProposals) throw new GameError('brand_too_many', { max: CONFIG.brandMaxProposals });
+      s.brands.push({ id: `${at}-${s.logSeq}`, by: actor, at, name, logo, status: 'draft', approvals: [] });
+      addLog(s, at, actor, 'brand_proposed', { name });
+      break;
+    }
+    case 'submitBrand': {
+      // Выставляет на голосование управляющий (если людей-управляющих нет — любой сотрудник) и платит самоцветами
+      const hasManager = humans(s).some((h) => h.role === 'manager');
+      if (hasManager) requireRole(p, 'manager');
+      const b = s.brands.find((x) => x.id === cmd.id);
+      if (!b || b.status !== 'draft') throw new GameError('no_brand');
+      if (s.brands.some((x) => x.status === 'voting')) throw new GameError('brand_voting');
+      requireGems(p, CONFIG.brandCost);
+      p.gems -= CONFIG.brandCost;
+      b.status = 'voting';
+      b.submittedBy = actor;
+      b.paid = CONFIG.brandCost;
+      b.approvals = [actor];
+      addLog(s, at, actor, 'brand_submitted', { name: b.name });
+      tryBrand(s, b, at);
+      break;
+    }
+    case 'voteBrand': {
+      const b = s.brands.find((x) => x.id === cmd.id);
+      if (!b || b.status !== 'voting') throw new GameError('no_brand');
+      if (cmd.yes) {
+        if (!b.approvals.includes(actor)) b.approvals.push(actor);
+        tryBrand(s, b, at);
+      } else {
+        // Против хотя бы один — вывеска не меняется, самоцветы возвращаются выставившему
+        const payer = b.submittedBy ? getPlayer(s, b.submittedBy) : undefined;
+        if (payer) payer.gems += b.paid ?? 0;
+        s.brands = s.brands.filter((x) => x.id !== b.id);
+        addLog(s, at, actor, 'brand_rejected', { name: b.name });
+      }
+      break;
+    }
+    case 'dropBrand': {
+      const b = s.brands.find((x) => x.id === cmd.id);
+      if (!b) throw new GameError('no_brand');
+      if (b.status !== 'draft') throw new GameError('brand_voting');
+      if (b.by !== actor && p.role !== 'manager') throw new GameError('forbidden');
+      s.brands = s.brands.filter((x) => x.id !== b.id);
+      break;
+    }
+    case 'buyCafeDecor': {
+      // Декор зала — развитие кофейни: покупает управляющий из бюджета
+      requireRole(p, 'manager');
+      const item = CAFE_DECOR_BY_ID[cmd.id];
+      if (!item) throw new GameError('bad_item');
+      if (s.cafeDecor.owned.includes(item.id)) throw new GameError('owned');
+      requireMoney(s, item.cost);
+      s.money -= item.cost;
+      s.cafeDecor.owned.push(item.id);
+      s.cafeDecor.placed[item.slot] = item.id;
+      markDay(p, at);
+      addLog(s, at, actor, 'cafe_decor_bought', { id: item.id });
+      break;
+    }
+    case 'placeCafeDecor': {
+      requireRole(p, 'manager');
+      if (cmd.id === null) {
+        delete s.cafeDecor.placed[cmd.slot as CafeDecorSlot];
+      } else {
+        const item = CAFE_DECOR_BY_ID[cmd.id];
+        if (!item || item.slot !== cmd.slot || !s.cafeDecor.owned.includes(item.id)) throw new GameError('bad_item');
+        s.cafeDecor.placed[cmd.slot] = item.id;
+      }
       break;
     }
     case 'startShift': {
@@ -873,6 +1040,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       requireMoney(s, cost);
       spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
       changeHappy(s, p, at, -CONFIG.managerHappyCost);
+      managerTaskDone(s, p, at);
       s.money -= cost;
       for (const [k, n] of entries) s.stock[k] += STOCK_PACKS[k].amount * n;
       p.managerXp += 10 * entries.length;
@@ -887,6 +1055,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       requireMoney(s, up.cost);
       spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
       changeHappy(s, p, at, -CONFIG.managerHappyCost);
+      managerTaskDone(s, p, at);
       s.money -= up.cost;
       s.upgrades[cmd.id] = true;
       p.managerXp += 25;
@@ -903,6 +1072,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       requireMoney(s, cost);
       spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
       changeHappy(s, p, at, -CONFIG.managerHappyCost);
+      managerTaskDone(s, p, at);
       s.money -= cost;
       s.levels[cmd.slot] = cur + 1;
       p.managerXp += 25;
@@ -917,6 +1087,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       requireMoney(s, m.cost);
       spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
       changeHappy(s, p, at, -CONFIG.managerHappyCost);
+      managerTaskDone(s, p, at);
       s.money -= m.cost;
       s.marketing = { id: cmd.id, guests: m.guests, tipBonus: m.tipBonus, shiftsLeft: m.shifts };
       p.managerXp += 15;
@@ -1179,6 +1350,14 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       p.wallet += 500;
       break;
     }
+    case 'debugGems': {
+      // Отладка: имитация покупки пачки за Stars (в локальном режиме и на сервере с ALLOW_DEBUG)
+      const pack = GEM_PACKS.find((x) => x.id === cmd.pack);
+      if (!pack) throw new GameError('bad_item');
+      p.gems += pack.gems + Math.round((pack.gems * (pack.bonus ?? 0)) / 100);
+      addLog(s, at, actor, 'gems_bought', { gems: pack.gems });
+      break;
+    }
     case 'debugUnlockRoom': {
       // Отладка: открыть кухню и все личные комнаты без взносов
       syncAll(s, at);
@@ -1226,7 +1405,7 @@ export function migrate(s: CafeState): CafeState {
   // Старые улучшения → уровни кофейни
   if (!x.levels) {
     const old = x.upgrades as Record<string, boolean | undefined>;
-    x.levels = { machine: old.machinePro ? 2 : 1, vitrine: 1, tables: old.terrace ? 3 : 1, decor: old.cozyHall ? 2 : 1 };
+    x.levels = { machine: old.machinePro ? 2 : 1, vitrine: 1, tables: old.terrace ? 3 : 1, decor: old.cozyHall ? 2 : 1 } as CafeState['levels'];
     delete old.machinePro;
     delete old.terrace;
     delete old.cozyHall;
@@ -1244,11 +1423,36 @@ export function migrate(s: CafeState): CafeState {
     }
     if (p.happy === undefined) p.happy = CONFIG.happyStart;
     if (p.wallet === undefined) p.wallet = p.isNpc ? 0 : CONFIG.walletStart;
+    if (p.gems === undefined) p.gems = p.isNpc ? 0 : CONFIG.gemsStart;
+    if (!p.daily) p.daily = { day: '', actions: 0, done: false };
+    if (!p.points) p.points = { day: '', today: 0, week: '', thisWeek: 0, all: 0 };
     if (p.socialDay === undefined) {
       p.socialDay = '';
       p.socialJoy = 0;
     }
   });
+  if (!x.logo) x.logo = { ...DEFAULT_LOGO };
+  if (!x.brands) x.brands = [];
+  if (!x.today) x.today = { day: '', points: 0 };
+  if (x.stats.points === undefined) x.stats.points = x.week.points;
+  if (!x.cafeDecor) {
+    // Уровни «столики» и «декор» заменены декором зала: декор переводим в предметы, столики — в деньги
+    const lv = x.levels as Record<string, number>;
+    const d = lv.decor ?? 1;
+    const ids = d >= 2 ? ['c-lamps', 'c-sillplant', 'c-hanging', 'c-floorplant'] : [];
+    if (d >= 3) ids.push('c-garland', 'c-pic-cup', 'c-shelf', 'c-succulent');
+    x.cafeDecor = { owned: [], placed: {} };
+    for (const id of ids) {
+      const it = CAFE_DECOR_BY_ID[id];
+      if (!it) continue;
+      x.cafeDecor.owned.push(id);
+      x.cafeDecor.placed[it.slot] = id;
+    }
+    const tb = lv.tables ?? 1;
+    x.money += (tb >= 2 ? 700 : 0) + (tb >= 3 ? 1500 : 0);
+    delete lv.tables;
+    delete lv.decor;
+  }
   if (!x.home) {
     ensureHome(x);
     delete x.room;

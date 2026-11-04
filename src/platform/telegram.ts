@@ -29,6 +29,7 @@ interface TgWebApp {
   lockOrientation?(): void;
   addToHomeScreen?(): void;
   showConfirm?(message: string, cb?: (ok: boolean) => void): void;
+  openInvoice?(url: string, cb?: (status: 'paid' | 'cancelled' | 'failed' | 'pending') => void): void;
   checkHomeScreenStatus?(cb: (status: string) => void): void;
   disableVerticalSwipes?(): void;
   setHeaderColor?(c: string): void;
@@ -147,6 +148,12 @@ export const tg = {
     webApp()?.addToHomeScreen?.();
   },
   /** Подтверждение: в Telegram — нативное окно, в браузере — confirm. */
+  /** Оплата Stars: открыть счёт, созданный ботом. Вне Telegram — 'failed'. */
+  openInvoice(url: string): Promise<'paid' | 'cancelled' | 'failed' | 'pending'> {
+    const wa = webApp();
+    if (!wa?.openInvoice) return Promise.resolve('failed');
+    return new Promise((res) => wa.openInvoice!(url, (st) => res(st)));
+  },
   confirm(message: string): Promise<boolean> {
     const wa = webApp();
     if (wa?.showConfirm && wa.isVersionAtLeast('6.2')) return new Promise((res) => wa.showConfirm!(message, (ok) => res(ok)));

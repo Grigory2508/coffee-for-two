@@ -26,13 +26,14 @@ import {
 import { slotLevel, canMake, capacity, catInCafe, counterHolder, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, todayMenu, vitalsNow, roomOrder, roomCost, type ShiftSummary } from '../core/engine';
 import { fillBasket, lowStock, shiftsLeft, stockByUrgency } from './stock';
 import type { CafeState, HomeRoom, Player } from '../core/types';
-import { leaderboard } from '../core/leaderboard';
 import { fmtDuration, L, t } from '../i18n';
 import { inviteLink } from '../net/backend';
 import { track } from '../platform/analytics';
 import { tg } from '../platform/telegram';
 import { CatPortrait, DecorIcon, RoomScene } from './art';
 import { CupSection } from './cup';
+import { LogoView } from './logo';
+import { BrandCard, CafeDecorCard, ShopSheet } from './social';
 import { CafeArt, Coin, CompIcon, StockIcon } from './icons';
 import { describeLog, playerName, roleName, roomTitle, timeAgo, useGame } from './game';
 
@@ -57,8 +58,11 @@ export function Header({ onRating, onAlert, extra }: { onRating?: () => void; on
   return (
     <header class="hud">
       <button class="hud-name" onClick={onRating}>
-        <b>{state.name}</b>
-        <Stars value={rating(state)} />
+        <LogoView logo={state.logo} size={34} />
+        <span class="hud-title">
+          <b>{state.name}</b>
+          <Stars value={rating(state)} />
+        </span>
       </button>
       <div class="hud-stats">
         {low.length > 0 && (
@@ -93,6 +97,11 @@ function VitalsSheet({ p, v, onClose }: { p: Player; v: Vitals; onClose: () => v
   const { state, send, toast } = useGame();
   const [amount, setAmount] = useState(Math.min(100, p.wallet));
   const mult = Math.round((1 + CONFIG.happyRatingSpan * ((v.happy - 50) / 50) - 1) * 100);
+  const [shop, setShop] = useState(false);
+  const today = new Date(Date.now()).toISOString().slice(0, 10);
+  const acts = p.daily?.day === today ? p.daily.actions : 0;
+  const dailyText = p.daily?.day === today && p.daily.done ? t('dailyDone') : t('dailyGoal', { n: Math.min(acts, CONFIG.dailyGoalActions), max: CONFIG.dailyGoalActions, g: CONFIG.dailyGoalGems });
+  if (shop) return <ShopSheet onClose={() => setShop(false)} />;
   return (
     <div class="vitals-sheet card" onClick={(e) => e.stopPropagation()}>
       <div class="row">
@@ -103,6 +112,15 @@ function VitalsSheet({ p, v, onClose }: { p: Player; v: Vitals; onClose: () => v
       {v.fullInMs > 0 && <div class="muted small">{t('energyFullIn', { t: fmtDuration(v.fullInMs) })}</div>}
       <Progress label={`😊 ${t('happyLine', { h: Math.floor(v.happy), cap: v.joyCap })}`} value={v.happy / 100} />
       <div class="muted small">{t('happyRating', { sign: mult >= 0 ? '+' : '−', pct: Math.abs(mult) })}</div>
+      <div class="row gap">
+        <span class="small grow">
+          💎 {t('gemsLine', { n: p.gems ?? 0 })}
+        </span>
+        <button class="btn small primary" onClick={() => setShop(true)}>
+          {t('shopOpen')}
+        </button>
+      </div>
+      <div class="muted tiny">{dailyText}</div>
       <div class="small">👛 {t('walletLine', { n: p.wallet })}</div>
       <div class="small">🪙 {t('budgetLine', { n: state.money })}</div>
       {p.wallet > 0 && (
@@ -350,7 +368,7 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
   return (
     <div class="tab">
       <div class="card hero">
-        <CafeArt levels={state.levels} />
+        <CafeArt levels={state.levels} decor={state.cafeDecor.placed} />
         <div class="hero-body">
           <div class="hero-title">{t('shiftTitle')}</div>
           <div class="muted small">{t('shiftLength', { n: guestsPerShift(state) })}</div>
@@ -371,36 +389,12 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
 /** Кофейня — общая информация: цель, лига, цифры, склад, истории, журнал. */
 export function CafeInfoTab() {
   const { state, me, now } = useGame();
-  const rows = leaderboard(state, now);
-  const youAt = rows.findIndex((r) => r.you);
-  const shown = rows.filter((_, i) => i < 3 || Math.abs(i - youAt) <= 1);
+  const [shop, setShop] = useState(false);
   return (
     <div class="tab">
-      <CafeArt levels={state.levels} />
-
-
-      <div class="card">
-        <div class="card-title">🏆 {t('topTitle')}</div>
-        <div class="muted small">{t('topText')}</div>
-        <ol class="top">
-          {shown.map((r) => {
-            const i = rows.indexOf(r);
-            const gap = i > 2 && !shown.includes(rows[i - 1]);
-            return (
-              <>
-                {gap && <li class="top-gap">⋯</li>}
-                <li class={r.you ? 'you' : ''}>
-                  <span class="place">{i + 1}</span>
-                  <span class="grow">
-                    {r.name} {r.you && <span class="tag">{t('you')}</span>}
-                  </span>
-                  <b>{r.points}</b>
-                </li>
-              </>
-            );
-          })}
-        </ol>
-      </div>
+      <CafeDecorCard />
+      <BrandCard onShop={() => setShop(true)} />
+      {shop && <ShopSheet onClose={() => setShop(false)} />}
 
       <div class="card">
         <div class="card-title">{t('statsTitle')}</div>

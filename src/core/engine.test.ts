@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, DECOR_BY_ID, DRINKS, type Role } from './content';
-import { apply, createCafe, digestFor, energyNow, happyRatingMult, vitalsNow, freeRoles, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, roleCount, todayMenu, weekId } from './engine';
+import { apply, createCafe, digestFor, energyNow, happyRatingMult, vitalsNow, freeRoles, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, roleCount, slotEffects, todayMenu, weekId } from './engine';
 import type { CafeState, Command, GuestResult } from './types';
 
 const T0 = Date.UTC(2026, 10, 2, 9, 0, 0); // понедельник
@@ -180,7 +180,7 @@ describe('силы', () => {
     expect(s.stock.syrup).toBe(10);
     s = run(s, 'a', { type: 'unlockDrink', id: 'latte' }, T0).state;
     expect(getPlayer(s, 'a')!.energy).toBe(80);
-    s = run(s, 'a', { type: 'upgradeSlot', slot: 'tables' }, T0).state;
+    s = run(s, 'a', { type: 'upgradeSlot', slot: 'vitrine' }, T0).state;
     s = run(s, 'a', { type: 'launchMarketing', id: 'flyers' }, T0).state;
     s = run(s, 'a', { type: 'supplyRun', items: { cocoa: 1 } }, T0).state;
     s = run(s, 'a', { type: 'supplyRun', items: { cocoa: 1 } }, T0).state;
@@ -206,24 +206,34 @@ describe('смена', () => {
     expect(rating(state)).toBeGreaterThan(3.5);
   });
 
-  it('грязные столики снижают рейтинг', () => {
+  it('уборки больше нет: чистота от клиента не влияет на рейтинг', () => {
     const clean = perfectShift(fresh(), 'a', T0).state;
     const r = run(fresh(), 'a', { type: 'startShift' }, T0);
     const results = r.shiftPlan!.guests.map((_, i) => ({ i, outcome: 'served' as const, waitMs: 1000 }));
     const dirty = run(r.state, 'a', { type: 'finishShift', results, cleanliness: 0 }, T0 + 60_000).state;
-    expect(rating(dirty)!).toBeLessThan(rating(clean)!);
+    expect(rating(dirty)!).toBe(rating(clean)!);
   });
 
-  it('веранда и реклама добавляют гостей; реклама кончается через 3 смены', () => {
+  it('реклама добавляет гостей и кончается через 3 смены', () => {
     let s = join(fresh('barista'));
     s = { ...run(s, 'b', { type: 'debugRefill' }, T0).state, money: 5000 };
-    s = run(s, 'b', { type: 'upgradeSlot', slot: 'tables' }, T0).state;
-    s = run(s, 'b', { type: 'upgradeSlot', slot: 'tables' }, T0).state;
     s = run(s, 'b', { type: 'launchMarketing', id: 'flyers' }, T0).state;
     const r = run(s, 'a', { type: 'startShift' }, T0);
-    expect(r.shiftPlan!.guests).toHaveLength(CONFIG.shiftGuests + 2);
-    expect(r.shiftPlan!.tables).toBe(CONFIG.tablesBase + 2);
+    expect(r.shiftPlan!.guests.length).toBeGreaterThan(CONFIG.shiftGuests);
     expect(r.state.marketing!.shiftsLeft).toBe(2);
+  });
+
+  it('декор зала: покупает управляющий из бюджета, гости терпеливее', () => {
+    let s = join(fresh('barista'));
+    s.money = 5000;
+    const before = slotEffects(s).patienceMs;
+    expect(() => run(s, 'a', { type: 'buyCafeDecor', id: 'c-floorplant' }, T0)).toThrow('wrong_role');
+    s = run(s, 'b', { type: 'buyCafeDecor', id: 'c-floorplant' }, T0).state;
+    expect(s.money).toBe(5000 - 500);
+    expect(s.cafeDecor.placed.floor).toBe('c-floorplant');
+    expect(slotEffects(s).patienceMs - before).toBe(2000);
+    s = run(s, 'b', { type: 'placeCafeDecor', slot: 'floor', id: null }, T0).state;
+    expect(s.cafeDecor.placed.floor).toBeUndefined();
   });
 
   it('гость уходит, если не хватает продуктов', () => {
@@ -436,6 +446,56 @@ describe('с собой', () => {
     r2.shiftPlan!.guests.forEach((g, i) => (g.takeaway = i === 0));
     const d2 = run(r2.state, 'a', { type: 'finishShift', results: r2.shiftPlan!.guests.map((_, i) => ({ i, outcome: 'served', waitMs: 1000 })), cleanliness: 1 }, T0 + 60_000);
     expect(d2.summary!.noStock).toBe(1);
+  });
+});
+
+describe('вывеска и самоцветы', () => {
+  it('любой предлагает, управляющий выставляет за самоцветы, одобряют все', () => {
+    let s = join(fresh('barista')); // a — бариста, b — управляющий
+    s = run(s, 'a', { type: 'proposeBrand', name: 'Тёплый угол', logo: { shape: 1, bg: 3, fg: 6, icon: 2, text: 'ту', frame: 2 } }, T0).state;
+    const id = s.brands[0].id;
+    expect(s.brands[0].logo.text).toBe('ТУ');
+    expect(() => run(s, 'a', { type: 'submitBrand', id }, T0)).toThrow('wrong_role');
+    getPlayer(s, 'b')!.gems = CONFIG.brandCost;
+    s = run(s, 'b', { type: 'submitBrand', id }, T0).state;
+    expect(getPlayer(s, 'b')!.gems).toBe(0);
+    expect(s.name).not.toBe('Тёплый угол');
+    s = run(s, 'a', { type: 'voteBrand', id, yes: true }, T0).state;
+    expect(s.name).toBe('Тёплый угол');
+    expect(s.logo.icon).toBe(2);
+    expect(s.brands).toHaveLength(0);
+  });
+
+  it('если кто-то против — вывеска не меняется, самоцветы возвращаются', () => {
+    let s = join(fresh('barista'));
+    s = run(s, 'b', { type: 'proposeBrand', name: 'Другое', logo: s.logo }, T0).state;
+    const id = s.brands[0].id;
+    getPlayer(s, 'b')!.gems = 100;
+    s = run(s, 'b', { type: 'submitBrand', id }, T0).state;
+    s = run(s, 'a', { type: 'voteBrand', id, yes: false }, T0).state;
+    expect(getPlayer(s, 'b')!.gems).toBe(100);
+    expect(s.brands).toHaveLength(0);
+  });
+
+  it('брань в названии не проходит; самоцветы выдаёт только сервер', () => {
+    const s = fresh();
+    expect(() => run(s, 'a', { type: 'proposeBrand', name: 'Fuck cafe', logo: s.logo }, T0)).toThrow('bad_name');
+    expect(() => run(s, 'a', { type: 'grantGems', player: 'a', amount: 999, ref: 'x' }, T0)).toThrow('forbidden');
+    const g = apply(s, { actor: 'system', at: T0, cmd: { type: 'grantGems', player: 'a', amount: 60, ref: 'x' } });
+    expect(getPlayer(g.state, 'a')!.gems).toBe(CONFIG.gemsStart + 60);
+  });
+
+  it('дневная цель: три дела по роли дают самоцветы, очки идут в день/неделю/всё время', () => {
+    let s = fresh('barista');
+    for (let i = 0; i < 3; i++) {
+      s = run(s, 'a', { type: 'debugRefill' }, T0 + i * 1000).state;
+      s = perfectShift(s, 'a', T0 + i * 1000).state;
+    }
+    const p = getPlayer(s, 'a')!;
+    expect(p.gems).toBe(CONFIG.gemsStart + CONFIG.dailyGoalGems);
+    expect(s.today.points).toBe(s.week.points);
+    expect(s.stats.points).toBe(s.week.points);
+    expect(p.points.all).toBe(s.week.points);
   });
 });
 

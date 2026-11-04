@@ -2,6 +2,8 @@
 import { digestFor } from '../_shared/core/engine.ts';
 import type { CafeState, LogEntry } from '../_shared/core/types.ts';
 import { insert, select, update } from '../_shared/db.ts';
+import { applyCommand, bankGems } from '../_shared/cafe.ts';
+import { GEM_PACKS } from '../_shared/core/content.ts';
 import { botApi } from '../_shared/telegram.ts';
 
 const TOKEN = Deno.env.get('BOT_TOKEN')!;
@@ -172,17 +174,36 @@ async function onUpdate(u: Update) {
 
   if (u.message?.successful_payment) {
     const p = u.message.successful_payment;
-    await insert('payments', {
-      charge_id: p.telegram_payment_charge_id,
-      user_id: u.message.from.id,
-      payload: p.invoice_payload,
-      amount: p.total_amount,
-    }, true);
-    // TODO: выдать покупку (идемпотентно по charge_id) — тестовый пак появится в MVP-тесте
+    const userId = u.message.from.id as number;
+    // Идемпотентно: повторная доставка того же платежа упрётся в первичный ключ charge_id
+    let fresh = true;
+    try {
+      await insert('payments', { charge_id: p.telegram_payment_charge_id, user_id: userId, payload: p.invoice_payload, amount: p.total_amount });
+    } catch {
+      fresh = false;
+    }
+    const [kind, packId] = String(p.invoice_payload).split(':');
+    const pack = GEM_PACKS.find((x) => x.id === packId);
+    if (fresh && kind === 'gems' && pack) {
+      const gems = pack.gems + Math.round((pack.gems * (pack.bonus ?? 0)) / 100);
+      const member = (await select<MemberRow>('members', `user_id=eq.${userId}&select=user_id,code,lang`))[0];
+      try {
+        if (member) await applyCommand(member.code, 'system', { type: 'grantGems', player: `tg${userId}`, amount: gems, ref: p.telegram_payment_charge_id });
+        else await bankGems(userId, gems);
+      } catch (e) {
+        // Игрока нет в кофейне (ушёл) — самоцветы ждут его в банке
+        console.error('grant', e);
+        await bankGems(userId, gems);
+      }
+    }
   }
 
   if (u.pre_checkout_query) {
-    await botApi(TOKEN, 'answerPreCheckoutQuery', { pre_checkout_query_id: u.pre_checkout_query.id, ok: true });
+    const q = u.pre_checkout_query;
+    const [kind, packId, uid] = String(q.invoice_payload).split(':');
+    const pack = GEM_PACKS.find((x) => x.id === packId);
+    const ok = kind === 'gems' && !!pack && q.currency === 'XTR' && q.total_amount === pack.stars && Number(uid) === q.from.id;
+    await botApi(TOKEN, 'answerPreCheckoutQuery', ok ? { pre_checkout_query_id: q.id, ok: true } : { pre_checkout_query_id: q.id, ok: false, error_message: 'Покупка недоступна / Purchase unavailable' });
   }
 
   if (u.my_chat_member && u.my_chat_member.chat.type === 'private') {

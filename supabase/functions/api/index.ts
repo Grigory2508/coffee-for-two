@@ -1,9 +1,10 @@
 // API игры: все действия игроков проходят здесь. Клиент шлёт команды, сервер применяет
 // ту же логику, что и клиент (src/core → _shared/core, копируется `npm run sync-server`).
-import { apply, createCafe, migrate } from '../_shared/core/engine.ts';
+import { createCafe, dayKey, weekId } from '../_shared/core/engine.ts';
+import { applyCommand, bankGems, cafeColumns, getCafe, releaseBank } from '../_shared/cafe.ts';
 import { GameError, type CafeState, type Command, type Player } from '../_shared/core/types.ts';
 import { peekOf } from '../_shared/core/peek.ts';
-import type { Role } from '../_shared/core/content.ts';
+import { GEM_PACKS, type Logo, type Role } from '../_shared/core/content.ts';
 import { insert, remove, select, update } from '../_shared/db.ts';
 import { botApi, verifyInitData } from '../_shared/telegram.ts';
 
@@ -33,12 +34,6 @@ function newCode() {
   return Array.from(b, (x) => ALPHABET[x % ALPHABET.length]).join('');
 }
 
-interface CafeRow {
-  code: string;
-  state: CafeState;
-  version: number;
-}
-
 interface MemberRow {
   user_id: number;
   code: string;
@@ -46,12 +41,6 @@ interface MemberRow {
 
 async function getMember(userId: number) {
   return (await select<MemberRow>('members', `user_id=eq.${userId}&select=user_id,code`))[0] ?? null;
-}
-
-async function getCafe(code: string) {
-  const row = (await select<CafeRow>('cafes', `code=eq.${encodeURIComponent(code)}&select=code,state,version`))[0] ?? null;
-  if (row) row.state = migrate(row.state);
-  return row;
 }
 
 const tgId = (playerId: string) => (/^tg\d+$/.test(playerId) ? Number(playerId.slice(2)) : null);
@@ -95,6 +84,7 @@ async function afterCommand(cmd: Command, before: CafeState, after: CafeState, a
     const id = tgId(p.id);
     if (!id) continue;
     await insert('members', { user_id: id, code: after.code, first_name: p.name, lang: fallback }, true);
+    await releaseBank(id, after.code).catch((e) => console.error('bank', e));
     await notify(
       id,
       fallback,
@@ -107,6 +97,7 @@ async function afterCommand(cmd: Command, before: CafeState, after: CafeState, a
     const id = tgId(p.id);
     if (!id) continue;
     await remove('members', `user_id=eq.${id}&code=eq.${after.code}`);
+    await bankGems(id, p.gems ?? 0).catch((e) => console.error('bank', e));
     if (cmd.type === 'removeStaff') {
       await notify(id, langs.get(id) ?? fallback, `Тебя убрали из команды кофейни «${after.name}». Можно открыть свою.`, `You were removed from “${after.name}”. You can open your own café.`);
     }
@@ -118,20 +109,41 @@ async function afterCommand(cmd: Command, before: CafeState, after: CafeState, a
   }
 }
 
-function cafeColumns(s: CafeState) {
-  return { state: s, version: s.version, name: s.name, week_id: s.week.id, week_points: s.week.points, updated_at: new Date().toISOString() };
+interface RatingDbRow {
+  code: string;
+  name: string;
+  week_id: string;
+  week_points: number;
+  today: { day: string; points: number } | null;
+  points: number | null;
+  logo: Logo | null;
 }
 
-/** Применить команду с оптимистичной блокировкой по версии (до 3 попыток при гонке двух партнёров). */
-async function applyCommand(code: string, actor: string, cmd: Command) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const row = await getCafe(code);
-    if (!row) throw new GameError('cafe_not_found');
-    const r = apply(row.state, { actor, at: Date.now(), cmd });
-    const updated = await update<CafeRow>('cafes', `code=eq.${code}&version=eq.${row.version}`, cafeColumns(r.state));
-    if (updated.length) return r;
-  }
-  throw new GameError('conflict');
+/** Рейтинги считаем по таблице кофеен (пока кофеен немного — берём до 1000 недавних и сортируем здесь). */
+async function ratings(myCode: string | null) {
+  const rows = await select<RatingDbRow>(
+    'cafes',
+    'select=code,name,week_id,week_points,today:state->today,points:state->stats->points,logo:state->logo&order=updated_at.desc&limit=1000',
+  );
+  const now = Date.now();
+  const day = dayKey(now);
+  const wk = weekId(now);
+  const board = (pts: (r: RatingDbRow) => number) =>
+    rows
+      .map((r) => ({ code: r.code, name: r.name, logo: r.logo, points: pts(r), you: r.code === myCode }))
+      .filter((r) => r.points > 0 || r.you)
+      .sort((a, b) => b.points - a.points)
+      .slice(0, 100)
+      .concat([]);
+  const withMe = (list: ReturnType<typeof board>, pts: (r: RatingDbRow) => number) => {
+    if (!myCode || list.some((r) => r.you)) return list;
+    const mine = rows.find((r) => r.code === myCode);
+    return mine ? [...list, { code: mine.code, name: mine.name, logo: mine.logo, points: pts(mine), you: true }] : list;
+  };
+  const today = (r: RatingDbRow) => (r.today?.day === day ? r.today.points : 0);
+  const week = (r: RatingDbRow) => (r.week_id === wk ? r.week_points : 0);
+  const all = (r: RatingDbRow) => r.points ?? r.week_points ?? 0;
+  return { today: withMe(board(today), today), week: withMe(board(week), week), all: withMe(board(all), all) };
 }
 
 Deno.serve(async (req) => {
@@ -180,11 +192,14 @@ Deno.serve(async (req) => {
           role,
           npcName: String(body.npcName ?? 'Сосед Артур').slice(0, 30),
           cafeName: String(body.cafeName ?? 'Наше место').slice(0, 24),
+          logo: (body.logo ?? undefined) as Logo | undefined,
           now: Date.now(),
         });
         await insert('cafes', { code: s.code, ...cafeColumns(s) });
         await insert('members', { user_id: user.id, code: s.code, first_name: user.first_name, lang: user.language_code ?? 'ru' }, true);
-        return json({ state: s });
+        await releaseBank(user.id, s.code).catch((e) => console.error('bank', e));
+        const fresh = await getCafe(s.code);
+        return json({ state: fresh?.state ?? s });
       }
       case 'peek': {
         const row = await getCafe(String(body.code ?? ''));
@@ -232,7 +247,7 @@ Deno.serve(async (req) => {
       case 'cmd': {
         const cmd = body.cmd as Command;
         if (!cmd || typeof cmd !== 'object' || typeof cmd.type !== 'string') return fail('bad_command');
-        if (cmd.type === 'join') return fail('bad_command');
+        if (cmd.type === 'join' || cmd.type === 'grantGems') return fail('bad_command');
         if (cmd.type.startsWith('debug') && !ALLOW_DEBUG) return fail('forbidden', {}, 403);
         const m = await getMember(user.id);
         if (!m) return fail('no_cafe');
@@ -243,7 +258,31 @@ Deno.serve(async (req) => {
         }
         return json(r);
       }
+      case 'ratings': {
+        const m = await getMember(user.id);
+        return json(await ratings(m?.code ?? null));
+      }
+      case 'invoice': {
+        // Пачка самоцветов за Telegram Stars: счёт создаёт бот, начисление — в вебхуке после successful_payment
+        const pack = GEM_PACKS.find((x) => x.id === body.pack);
+        if (!pack) return fail('bad_item');
+        const ru = /^(ru|uk|be|kk|hy|ka|uz|ky|az)/.test(user.language_code ?? 'ru');
+        const gems = pack.gems + Math.round((pack.gems * (pack.bonus ?? 0)) / 100);
+        const r = await botApi<string>(BOT_TOKEN, 'createInvoiceLink', {
+          title: ru ? `${gems} самоцветов` : `${gems} gems`,
+          description: ru ? 'Самоцветы для кофейни: смена вывески и другие улучшения.' : 'Gems for your café: change the sign and more.',
+          payload: `gems:${pack.id}:${user.id}`,
+          currency: 'XTR',
+          prices: [{ label: ru ? 'Самоцветы' : 'Gems', amount: pack.stars }],
+        });
+        if (!r.ok || !r.result) {
+          console.error('invoice', r.description);
+          return fail('server', {}, 500);
+        }
+        return json({ url: r.result });
+      }
       case 'leave': {
+        // Самоцветы ушедшего уже лежат в банке (afterCommand для leaveCafe/removeStaff)
         await remove('members', `user_id=eq.${user.id}`);
         return json({ ok: true });
       }

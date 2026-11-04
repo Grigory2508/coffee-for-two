@@ -17,7 +17,11 @@ async function open(as, q = '') {
   return p;
 }
 const shot = (p, n, full = false) => p.screenshot({ path: `${OUT}/${n}.png`, fullPage: full });
-const tab = (p, re) => p.locator('.tab-btn', { hasText: re }).click();
+const tab = async (p, re) => {
+  const ok = p.getByRole('button', { name: 'Понятно' });
+  if (await ok.count()) await ok.click();
+  await p.locator('.tab-btn', { hasText: re }).click();
+};
 const mutate = (p, src) =>
   p.evaluate((src) => {
     const k = Object.keys(localStorage).find((x) => x.startsWith('cft:cafe:'));
@@ -63,6 +67,7 @@ async function playShift(page, label, shots = true) {
 
 const a = await open('anya');
 await a.getByText('Кем будешь в кофейне?').waitFor();
+await shot(a, '00-onboarding', true);
 await a.locator('.role-card', { hasText: 'Бариста' }).click();
 await a.getByRole('button', { name: 'Открыть кофейню' }).click();
 await a.waitForSelector('.hud');
@@ -79,7 +84,7 @@ await playShift(a, '03-shift');
 await a.getByRole('button', { name: 'Назад' }).click();
 
 // богатое меню для проверки масштаба
-await mutate(a, "s.money = 9000; s.menu = ['espresso','americano','cappuccino','latte','icedLatte','cocoa','raf','cinnamonCap','flatWhite','caramelLatte','mocha']; s.featured = ['latte','icedLatte','raf','cinnamonCap','caramelLatte','mocha']; s.stock = { beans: 40, milk: 40, syrup: 30, cocoa: 20, cups: 40, catFood: 0 }; s.levels = { machine: 3, vitrine: 3, tables: 3, decor: 3 }; for (const p of s.players) { p.energy = 100; p.vitalsAt = Date.now(); }");
+await mutate(a, "s.money = 9000; s.menu = ['espresso','americano','cappuccino','latte','icedLatte','cocoa','raf','cinnamonCap','flatWhite','caramelLatte','mocha']; s.featured = ['latte','icedLatte','raf','cinnamonCap','caramelLatte','mocha']; s.stock = { beans: 40, milk: 40, syrup: 30, cocoa: 20, cups: 40, catFood: 0 }; s.levels = { machine: 3, vitrine: 3 }; s.cafeDecor = { owned: ['c-lamps','c-pic-cup','c-shelf','c-sillplant','c-hanging','c-floorplant','c-succulent'], placed: { light: 'c-lamps', wall: 'c-pic-cup', shelf: 'c-shelf', window: 'c-sillplant', hanging: 'c-hanging', floor: 'c-floorplant', counter: 'c-succulent' } }; for (const p of s.players) { p.energy = 100; p.vitalsAt = Date.now(); }");
 await a.reload();
 await a.waitForSelector('.hud');
 await shot(a, '04-barista-counter-rich');
@@ -135,6 +140,39 @@ await b.locator('.seg', { hasText: 'Развитие' }).click();
 await shot(b, '15-manager-growth');
 await tab(b, 'Команда');
 await shot(b, '16-team-manager-full', true);
+await tab(b, 'Кофейня');
+await shot(b, '16c-cafe-manager', true);
+await b.getByRole('button', { name: /Предложить новую вывеску/ }).click();
+await b.locator('.brand-editor input').first().fill('Тёплый угол');
+await b.locator('.logo-opt').nth(2).click();
+await shot(b, '16d-brand-editor', true);
+await b.getByRole('button', { name: 'Предложить', exact: true }).click();
+await b.waitForTimeout(300);
+await b.getByRole('button', { name: /Выставить/ }).click();
+await b.waitForTimeout(400);
+await shot(b, '16e-shop');
+await b.locator('.gem-pack').first().click();
+await b.waitForTimeout(500);
+await b.getByRole('button', { name: /Выставить/ }).click();
+await b.waitForTimeout(400);
+await shot(b, '16f-brand-voting', true);
+await a.bringToFront();
+await a.reload();
+await a.waitForSelector('.hud');
+{
+  const ok = a.getByRole('button', { name: 'Понятно' });
+  if (await ok.count()) await ok.click();
+}
+await tab(a, 'Кофейня');
+await a.getByRole('button', { name: '👍 За' }).click();
+await a.waitForTimeout(400);
+await shot(a, '16g-brand-changed');
+await tab(a, 'Рейтинг');
+await a.waitForTimeout(500);
+await shot(a, '16h-ratings');
+await a.locator('.seg', { hasText: 'Команда' }).click();
+await shot(a, '16i-ratings-team');
+await b.bringToFront();
 await b.locator('.vitals-chip').click();
 await shot(b, '16b-vitals');
 await b.locator('.vitals-chip').click();

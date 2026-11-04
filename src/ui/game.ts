@@ -1,6 +1,6 @@
 import { createContext } from 'preact';
 import { useContext } from 'preact/hooks';
-import { CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, ROOMS, STOCK_PACKS, UPGRADES, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type UpgradeId, type CafeSlot } from '../core/content';
+import { CAFE_DECOR_BY_ID, CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, ROOMS, STOCK_PACKS, UPGRADES, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type UpgradeId, type CafeSlot } from '../core/content';
 import type { ApplyResult } from '../core/engine';
 import type { CafeState, Command, LogEntry } from '../core/types';
 import { L, t } from '../i18n';
@@ -15,6 +15,8 @@ export interface Game {
   /** Отправить команду. Ошибки показываются тостом; возвращает null при ошибке. */
   send(cmd: Command, opts?: { quiet?: boolean }): Promise<ApplyResult | null>;
   toast(text: string): void;
+  /** Перечитать состояние с сервера (например, после оплаты). */
+  refresh(): Promise<void>;
   /** Игрок вышел из кофейни — вернуться на стартовый экран. */
   onLeft(): void;
 }
@@ -42,6 +44,7 @@ function itemName(kind: string, id: string): string {
   }
   if (kind === 'drink_unlocked') return L(DRINKS[id as DrinkId]?.name ?? { ru: id, en: id });
   if (kind === 'decor_bought' || kind === 'decor_placed') return L(DECOR_BY_ID[id]?.name ?? { ru: id, en: id });
+  if (kind === 'cafe_decor_bought') return L(CAFE_DECOR_BY_ID[id]?.name ?? { ru: id, en: id });
   if (kind === 'marketing_launched') return L(MARKETING[id as MarketingId]?.name ?? { ru: id, en: id });
   if (kind === 'regular_story') return L(REGULARS[id as RegularId]?.name ?? { ru: id, en: id });
   return id;
