@@ -2,7 +2,7 @@
 // банк самоцветов (самоцветы личные и не пропадают при уходе из кофейни).
 import { apply, migrate } from './core/engine.ts';
 import { GameError, type CafeState, type Command } from './core/types.ts';
-import { insert, remove, select, update } from './db.ts';
+import { insert, select, update } from './db.ts';
 
 export interface CafeRow {
   code: string;
@@ -33,21 +33,27 @@ export async function applyCommand(code: string, actor: string, cmd: Command) {
 }
 
 interface BankRow {
-  user_id: number;
-  gems: number;
+  charge_id: string;
+  amount: number;
 }
+
+// Банк самоцветов живёт в таблице payments (новая таблица не нужна): строка с payload 'bank' —
+// вклад в банк, refunded=true — уже выдан в кофейню.
 
 /** Положить самоцветы игрока в банк (он ушёл из кофейни или оплатил, не состоя ни в одной). */
 export async function bankGems(userId: number, gems: number) {
   if (gems <= 0) return;
-  const cur = (await select<BankRow>('gem_bank', `user_id=eq.${userId}&select=user_id,gems`))[0];
-  await insert('gem_bank', { user_id: userId, gems: (cur?.gems ?? 0) + gems, updated_at: new Date().toISOString() }, true);
+  await insert('payments', { charge_id: `bank:${userId}:${crypto.randomUUID()}`, user_id: userId, payload: 'bank', amount: gems });
 }
 
 /** Выдать игроку его самоцветы из банка в текущей кофейне. */
 export async function releaseBank(userId: number, code: string) {
-  const cur = (await select<BankRow>('gem_bank', `user_id=eq.${userId}&select=user_id,gems`))[0];
-  if (!cur || cur.gems <= 0) return;
-  await applyCommand(code, 'system', { type: 'grantGems', player: `tg${userId}`, amount: cur.gems, ref: 'bank' });
-  await remove('gem_bank', `user_id=eq.${userId}`);
+  const rows = await select<BankRow>('payments', `user_id=eq.${userId}&payload=eq.bank&refunded=eq.false&select=charge_id,amount`);
+  const total = rows.reduce((n, r) => n + r.amount, 0);
+  if (total <= 0) return;
+  // Сначала помечаем выданными (чтобы при гонке не выдать дважды), потом начисляем
+  const ids = rows.map((r) => `"${r.charge_id}"`).join(',');
+  const marked = await update<BankRow>('payments', `charge_id=in.(${encodeURIComponent(ids)})&refunded=eq.false`, { refunded: true });
+  const sum = marked.reduce((n, r) => n + r.amount, 0);
+  if (sum > 0) await applyCommand(code, 'system', { type: 'grantGems', player: `tg${userId}`, amount: sum, ref: 'bank' });
 }
