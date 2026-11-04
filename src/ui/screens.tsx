@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   CONFIG,
   DECOR,
@@ -7,7 +7,6 @@ import {
   REGULARS,
   REGULAR_ORDER,
   SLOT_LABEL,
-  SLOT_ORDER,
   STICKERS,
   STOCK_ORDER,
   STOCK_PACKS,
@@ -18,13 +17,15 @@ import {
   MARKETING,
   MARKETING_ORDER,
   ROLES,
+  ROOMS,
+  ROOM_SLOTS,
   otherRole,
   type DecorSlot,
   type StockId,
 } from '../core/content';
-import { slotLevel, canMake, capacity, catInCafe, counterHolder, energyNow, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, roomGate, todayMenu, type ShiftSummary } from '../core/engine';
+import { slotLevel, canMake, capacity, catInCafe, counterHolder, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, todayMenu, vitalsNow, roomOrder, roomCost, type ShiftSummary } from '../core/engine';
 import { fillBasket, lowStock, shiftsLeft, stockByUrgency } from './stock';
-import type { CafeState } from '../core/types';
+import type { CafeState, HomeRoom, Player } from '../core/types';
 import { leaderboard } from '../core/leaderboard';
 import { fmtDuration, L, t } from '../i18n';
 import { inviteLink } from '../net/backend';
@@ -32,8 +33,8 @@ import { track } from '../platform/analytics';
 import { tg } from '../platform/telegram';
 import { CatPortrait, DecorIcon, RoomScene } from './art';
 import { CupSection } from './cup';
-import { Bolt, CafeArt, Coin, CompIcon, StockIcon } from './icons';
-import { describeLog, playerName, roleName, timeAgo, useGame } from './game';
+import { CafeArt, Coin, CompIcon, StockIcon } from './icons';
+import { describeLog, playerName, roleName, roomTitle, timeAgo, useGame } from './game';
 
 // ---------- общие куски ----------
 
@@ -50,7 +51,8 @@ export function Stars({ value }: { value: number | null }) {
 export function Header({ onRating, onAlert, extra }: { onRating?: () => void; onAlert?: () => void; extra?: preact.ComponentChildren }) {
   const { state, me, now } = useGame();
   const p = getPlayer(state, me.id);
-  const e = p ? energyNow(p, now) : null;
+  const v = p ? vitalsNow(state, p, now) : null;
+  const [open, setOpen] = useState(false);
   const low = lowStock(state);
   return (
     <header class="hud">
@@ -64,21 +66,63 @@ export function Header({ onRating, onAlert, extra }: { onRating?: () => void; on
             ⚠ {low.map((k) => <StockIcon k={k} size={18} />)}
           </button>
         )}
-        <span class="hud-chip">
+        <button class="hud-chip" title={t('budget')} onClick={() => setOpen(!open)}>
           <Coin /> <b>{state.money}</b>
-        </span>
-        {e && (
-          <span class="hud-chip energy-chip" title={t('energy')}>
-            <Bolt /> <b>{e.energy}/{CONFIG.energyMax}</b>
-            {e.nextAt ? <small>{fmtDuration(e.nextAt - now)}</small> : null}
-          </span>
+        </button>
+        {p && v && (
+          <button class="hud-chip vitals-chip" onClick={() => setOpen(!open)} aria-label={t('vitalsTitle')}>
+            <span title={t('wallet')}>👛<b>{p.wallet}</b></span>
+            <span class="meters" aria-hidden="true">
+              <i title={t('energy')}><u class="m-energy" style={{ width: `${v.energy}%` }} /></i>
+              <i title={t('happy')}><u class="m-happy" style={{ width: `${v.happy}%` }} /></i>
+            </span>
+          </button>
         )}
         {extra}
       </div>
+      {open && p && v && <VitalsSheet p={p} v={v} onClose={() => setOpen(false)} />}
     </header>
   );
 }
 
+
+type Vitals = ReturnType<typeof vitalsNow>;
+
+/** Раскрывашка из шапки: бодрость, счастье, кошелёк и перевод в бюджет. */
+function VitalsSheet({ p, v, onClose }: { p: Player; v: Vitals; onClose: () => void }) {
+  const { state, send, toast } = useGame();
+  const [amount, setAmount] = useState(Math.min(100, p.wallet));
+  const mult = Math.round((1 + CONFIG.happyRatingSpan * ((v.happy - 50) / 50) - 1) * 100);
+  return (
+    <div class="vitals-sheet card" onClick={(e) => e.stopPropagation()}>
+      <div class="row">
+        <b class="grow">{p.name}</b>
+        <button class="btn ghost small" onClick={onClose}>✕</button>
+      </div>
+      <Progress label={`⚡ ${t('energyLine', { e: Math.floor(v.energy), r: v.restPerMin.toFixed(2) })}`} value={v.energy / 100} />
+      {v.fullInMs > 0 && <div class="muted small">{t('energyFullIn', { t: fmtDuration(v.fullInMs) })}</div>}
+      <Progress label={`😊 ${t('happyLine', { h: Math.floor(v.happy), cap: v.joyCap })}`} value={v.happy / 100} />
+      <div class="muted small">{t('happyRating', { sign: mult >= 0 ? '+' : '−', pct: Math.abs(mult) })}</div>
+      <div class="small">👛 {t('walletLine', { n: p.wallet })}</div>
+      <div class="small">🪙 {t('budgetLine', { n: state.money })}</div>
+      {p.wallet > 0 && (
+        <div class="row gap">
+          <input class="input grow" type="number" min={1} max={p.wallet} value={amount} onInput={(e) => setAmount(Math.floor(Number((e.target as HTMLInputElement).value) || 0))} />
+          <button
+            class="btn small"
+            disabled={amount < 1 || amount > p.wallet}
+            onClick={async () => {
+              const r = await send({ type: 'transferToBudget', amount });
+              if (r) toast(t('toBudgetDone', { n: amount }));
+            }}
+          >
+            {t('toBudget')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export async function sharePartnerInvite(code: string, key: string, toast: (s: string) => void, source: string) {
   const url = inviteLink(code, key);
@@ -218,7 +262,7 @@ function RoleCard() {
         </span>
         <span class="muted small grow">{t('yourRole')}</span>
       </div>
-      <div class="muted small">{p.role === 'barista' ? t('baristaHint') : t('managerHint')}</div>
+      <div class="muted small">{p.role === 'barista' ? t('baristaHint') : t('managerHint', { e: CONFIG.managerTaskEnergy })}</div>
       {swap && swap.by === me.id && (
         <div class="row swap-row">
           <span class="small grow">⏳ {t('swapWaiting', { name: getPlayer(state, swap.with)?.name ?? '' })}</span>
@@ -297,7 +341,10 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
   const { state, me, now } = useGame();
   const p = getPlayer(state, me.id)!;
   const counter = counterHolder(state, me.id, now);
-  const e = energyNow(p, now);
+  const v = vitalsNow(state, p, now);
+  const cost = v.shiftCost;
+  const lack = v.energy < cost;
+  const waitMs = lack ? ((cost - v.energy) / v.restPerMin) * 60_000 : 0;
   const active = !!state.activeShifts[me.id];
   const catHere = catInCafe(state);
   return (
@@ -307,11 +354,11 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
         <div class="hero-body">
           <div class="hero-title">{t('shiftTitle')}</div>
           <div class="muted small">{t('shiftLength', { n: guestsPerShift(state) })}</div>
-          <button class="btn primary big wide" disabled={!active && (e.energy < 1 || !!counter)} onClick={onStartShift}>
-            {active ? t('continueShift') : t('startShiftCost')}
+          <button class="btn primary big wide" disabled={!active && (lack || !!counter)} onClick={onStartShift}>
+            {active ? t('continueShift') : t('startShiftCost', { e: cost })}
           </button>
           {!active && counter && <div class="locked-note center">⏳ {t('counterBusy', { name: counter.name })}</div>}
-          {!active && !counter && e.energy < 1 && e.nextAt && <div class="muted small center">{t('noEnergy', { t: fmtDuration(e.nextAt - now) })}</div>}
+          {!active && !counter && lack && <div class="muted small center">{t('noEnergy', { need: cost, t: fmtDuration(waitMs) })}</div>}
           {state.marketing && <div class="small center">📣 {t('marketingActive', { name: L(MARKETING[state.marketing.id].name), n: state.marketing.shiftsLeft })}</div>}
           {catHere && <div class="small center">🐈 {t('catInCafe', { name: state.cat!.name })}</div>}
         </div>
@@ -324,7 +371,6 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
 /** Кофейня — общая информация: цель, лига, цифры, склад, истории, журнал. */
 export function CafeInfoTab() {
   const { state, me, now } = useGame();
-  const gate = roomGate(state);
   const rows = leaderboard(state, now);
   const youAt = rows.findIndex((r) => r.you);
   const shown = rows.filter((_, i) => i < 3 || Math.abs(i - youAt) <= 1);
@@ -332,13 +378,6 @@ export function CafeInfoTab() {
     <div class="tab">
       <CafeArt levels={state.levels} />
 
-      {!state.room.unlocked && (
-        <div class="card">
-          <div class="card-title">🏠 {t('goalsTitle')}</div>
-          <Progress label={t('goalStars', { v: gate.stars.toFixed(1), need: gate.needStars })} value={gate.stars / gate.needStars} />
-          <Progress label={t('goalShifts', { v: gate.shifts, need: gate.needShifts })} value={gate.shifts / gate.needShifts} />
-        </div>
-      )}
 
       <div class="card">
         <div class="card-title">🏆 {t('topTitle')}</div>
@@ -465,6 +504,12 @@ export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { su
         {t('tips')}: {summary.tips} 🪙
       </div>
       {summary.pastry > 0 && <div class="muted center">{t('pastryLine', { n: summary.pastry })}</div>}
+      {summary.salary > 0 && <div class="center">👛 {t('salaryLine', { n: summary.salary })}</div>}
+      {summary.happyMult && Math.abs(summary.happyMult - 1) > 0.005 && (
+        <div class="muted small center">
+          😊 {t('happyMultLine', { sign: summary.happyMult >= 1 ? '+' : '−', pct: Math.round(Math.abs(summary.happyMult - 1) * 100) })}
+        </div>
+      )}
       <div class="result-grid">
         <div>
           <b>{summary.served}</b>
@@ -502,7 +547,7 @@ export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { su
       )}
       {onAgain && canAgain && (
         <button class="btn primary wide" onClick={onAgain}>
-          {t('shiftAgain')}
+          {t('shiftAgain', { e: getPlayer(state, me.id) ? vitalsNow(state, getPlayer(state, me.id)!, Date.now()).shiftCost : CONFIG.shiftEnergy })}
         </button>
       )}
       <button class="btn ghost wide" onClick={onClose}>
@@ -566,7 +611,7 @@ export function OfficeTab() {
       </div>
       {busyBy && <div class="locked-note">⏳ {t('officeBusy', { name: busyBy.name })}</div>}
       {!isManager && <div class="locked-note">🔒 {t('officeOnlyManager')}</div>}
-      <div class="muted small">{t('managerHint')}</div>
+      <div class="muted small">{t('managerHint', { e: CONFIG.managerTaskEnergy })}</div>
       <fieldset class="plain" disabled={!isManager || !!busyBy}>
         {seg === 'stock' && <StockSeg />}
         {seg === 'menu' && <MenuSeg />}
@@ -649,7 +694,7 @@ function StockSeg() {
             {t('basketClear')}
           </button>
           <button class="btn primary" disabled={state.money < cost} onClick={go}>
-            {t('basketGo')}
+            {t('basketGo', { e: CONFIG.managerTaskEnergy })}
           </button>
         </div>
       )}
@@ -739,7 +784,7 @@ function GrowthSeg() {
                   </div>
                   <div class="buy">
                     <button class="btn small" disabled={state.money < next.cost} onClick={() => send({ type: 'upgradeSlot', slot })}>
-                      1⚡ · {next.cost} 🪙
+                      {CONFIG.managerTaskEnergy}⚡ · {next.cost} 🪙
                     </button>
                     {state.money < next.cost && <div class="small muted">{t('lacking', { n: next.cost - state.money })}</div>}
                   </div>
@@ -766,7 +811,7 @@ function GrowthSeg() {
               </div>
               <div class="buy">
                 <button class="btn small" disabled={!!state.marketing || state.money < m.cost} onClick={() => send({ type: 'launchMarketing', id })}>
-                  1⚡ · {m.cost} 🪙
+                  {CONFIG.managerTaskEnergy}⚡ · {m.cost} 🪙
                 </button>
                 {!state.marketing && state.money < m.cost && <div class="small muted">{t('lacking', { n: m.cost - state.money })}</div>}
               </div>
@@ -791,7 +836,7 @@ function GrowthSeg() {
               ) : (
                 <div class="buy">
                   <button class="btn small" disabled={state.money < u.cost} onClick={() => send({ type: 'buyUpgrade', id })}>
-                    1⚡ · {u.cost} 🪙
+                    {CONFIG.managerTaskEnergy}⚡ · {u.cost} 🪙
                   </button>
                   {state.money < u.cost && <div class="small muted">{t('lacking', { n: u.cost - state.money })}</div>}
                 </div>
@@ -808,100 +853,206 @@ function GrowthSeg() {
 // ---------- квартира ----------
 
 export function RoomTab() {
-  const { state, me, now, send } = useGame();
-  const [slot, setSlot] = useState<DecorSlot>('sofa');
-  const [catName, setCatName] = useState('');
-  const gate = roomGate(state);
-  if (!state.room.unlocked) {
+  const { state, me } = useGame();
+  const keys = roomOrder(state, me.id);
+  const [idx, setIdx] = useState(0);
+  const pager = useRef<HTMLDivElement>(null);
+  function goTo(i: number) {
+    const el = pager.current;
+    if (el) el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
+    setIdx(i);
+  }
+  return (
+    <div class="tab">
+      <div class="room-dots">
+        {keys.map((k, i) => {
+          const r = state.home.rooms[k];
+          return (
+            <button class={`room-dot ${i === idx ? 'on' : ''} ${r.open ? '' : 'locked'}`} onClick={() => goTo(i)}>
+              {r.open ? ROOMS[r.kind].icon : '🔒'} <span>{roomTitle(state, k, me.id)}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div
+        class="room-pager"
+        ref={pager}
+        onScroll={(e) => {
+          const el = e.currentTarget as HTMLDivElement;
+          const i = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+          if (i !== idx) setIdx(i);
+        }}
+      >
+        {keys.map((k, i) => (
+          <div class="room-page">{Math.abs(i - idx) <= 1 ? <RoomPage roomKey={k} /> : null}</div>
+        ))}
+      </div>
+      <div class="muted small center">{t('swipeHint')}</div>
+      <CatCard />
+    </div>
+  );
+}
+
+function effectList(items: (string | undefined)[], room: HomeRoom): string {
+  let rest = 0;
+  let joy = 0;
+  let cut = 0;
+  for (const id of Object.values(room.placed)) {
+    const d = DECOR.find((x) => x.id === id);
+    if (!d) continue;
+    rest += d.rest;
+    joy += d.joy;
+    cut += d.shiftCut;
+  }
+  void items;
+  const parts: string[] = [];
+  if (rest) parts.push(t('effRest', { n: +rest.toFixed(3) }));
+  if (joy) parts.push(t('effJoy', { n: joy }));
+  if (cut) parts.push(t('effCut', { n: cut }));
+  return parts.length ? `${t('roomEffects', { list: parts.join(' · ') })} (${room.kind === 'bedroom' ? t('forOwner') : t('forAll')})` : t('roomEffectsNone');
+}
+
+function itemEffect(d: (typeof DECOR)[number]): string {
+  const parts: string[] = [];
+  if (d.rest) parts.push(t('effRest', { n: d.rest }));
+  if (d.joy) parts.push(t('effJoy', { n: d.joy }));
+  if (d.shiftCut) parts.push(t('effCut', { n: d.shiftCut }));
+  return parts.join(' · ');
+}
+
+function RoomPage({ roomKey }: { roomKey: string }) {
+  const { state, me, send } = useGame();
+  const room = state.home.rooms[roomKey];
+  const p = getPlayer(state, me.id)!;
+  const slots = ROOM_SLOTS[room.kind];
+  const [slot, setSlot] = useState<DecorSlot>(slots[0]);
+  const canEdit = room.open && (room.kind !== 'bedroom' || room.owner === me.id);
+  const title = roomTitle(state, roomKey, me.id);
+
+  if (!room.open) {
+    const cost = roomCost(room);
+    const left = cost - room.fund;
+    const steps = [50, 200, left].filter((n, i, a) => n > 0 && n <= left && a.indexOf(n) === i);
     return (
-      <div class="tab">
-        <div class="card center locked">
-          <div class="lock">🔒</div>
-          <h3>{t('roomLocked')}</h3>
-          <p class="muted">{t('roomLockedText', { stars: gate.needStars, shifts: gate.needShifts })}</p>
-          <Progress label={t('goalStars', { v: gate.stars.toFixed(1), need: gate.needStars })} value={gate.stars / gate.needStars} />
-          <Progress label={t('goalShifts', { v: gate.shifts, need: gate.needShifts })} value={gate.shifts / gate.needShifts} />
+      <div class="room-wrap">
+        <RoomScene kind={room.kind} placed={{}} catMood={null} locked />
+        <div class="card center">
+          <h3>🔒 {title}</h3>
+          <Progress label={t('roomLockedFund', { fund: room.fund, cost })} value={room.fund / cost} />
+          <p class="muted small">{t('roomFundHint')}</p>
+          <div class="row gap center-row">
+            {steps.map((n) => (
+              <button class="btn small" disabled={p.wallet < n} onClick={() => send({ type: 'contributeRoom', room: roomKey, amount: n })}>
+                {t('roomGive', { n })}
+              </button>
+            ))}
+            {p.wallet > 0 && p.wallet < left && !steps.includes(p.wallet) && (
+              <button class="btn small primary" onClick={() => send({ type: 'contributeRoom', room: roomKey, amount: p.wallet })}>
+                {t('roomGive', { n: p.wallet })}
+              </button>
+            )}
+          </div>
+          <div class="muted small">👛 {p.wallet} 🪙</div>
         </div>
       </div>
     );
   }
+
+  return (
+    <div class="room-wrap">
+      <RoomScene kind={room.kind} placed={room.placed} catMood={room.kind === 'hall' && state.cat ? state.cat.mood : null} onSlot={canEdit ? setSlot : undefined} />
+      <div class="card">
+        <div class="card-title">
+          {ROOMS[room.kind].icon} {title}
+        </div>
+        <div class="muted small">{effectList([], room)}</div>
+        {!canEdit ? (
+          <div class="locked-note">🔒 {t('roomOwnerOnly')}</div>
+        ) : (
+          <>
+            <div class="chips">
+              {slots.map((sl) => (
+                <button class={`chip ${slot === sl ? 'on' : ''}`} onClick={() => setSlot(sl)}>
+                  {L(SLOT_LABEL[sl])}
+                </button>
+              ))}
+            </div>
+            <div class="decor-grid">
+              {DECOR.filter((d) => d.slot === slot).map((d) => {
+                const owned = room.owned.includes(d.id);
+                const placed = room.placed[d.slot] === d.id;
+                return (
+                  <div class={`decor ${placed ? 'placed' : ''}`}>
+                    <DecorIcon slot={d.slot} v={d.variant} />
+                    <div class="small">{L(d.name)}</div>
+                    <div class="tiny muted">{itemEffect(d)}</div>
+                    {placed ? (
+                      <button class="btn small ghost" onClick={() => send({ type: 'placeDecor', slot: d.slot, id: null, room: roomKey })}>
+                        {t('remove')}
+                      </button>
+                    ) : owned ? (
+                      <button class="btn small" onClick={() => send({ type: 'placeDecor', slot: d.slot, id: d.id, room: roomKey })}>
+                        {t('place')}
+                      </button>
+                    ) : (
+                      <button class="btn small" disabled={p.wallet < d.cost} onClick={() => send({ type: 'buyDecor', id: d.id, room: roomKey })}>
+                        👛 {d.cost}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CatCard() {
+  const { state, me, now, send } = useGame();
+  const [catName, setCatName] = useState('');
   const p = getPlayer(state, me.id)!;
   const petReadyIn = p.lastPetAt + CONFIG.catPetCooldownMs - now;
   return (
-    <div class="tab">
-      <RoomScene placed={state.room.placed} catMood={state.cat ? state.cat.mood : null} onSlot={setSlot} />
-
-      <div class="card">
-        <div class="card-title">🛋️ {t('decorTitle')}</div>
-        <div class="chips">
-          {SLOT_ORDER.map((s) => (
-            <button class={`chip ${slot === s ? 'on' : ''}`} onClick={() => setSlot(s)}>
-              {L(SLOT_LABEL[s])}
+    <div class="card">
+      <div class="card-title">🐈 {t('catTitle')}</div>
+      {!state.cat ? (
+        <div>
+          <p>{t('catFound')}</p>
+          <div class="row">
+            <input class="input grow" value={catName} maxLength={20} placeholder={t('catNamePlaceholder')} onInput={(e) => setCatName((e.target as HTMLInputElement).value)} />
+            <button class="btn primary" disabled={!catName.trim()} onClick={() => send({ type: 'adoptCat', name: catName })}>
+              {t('catAdopt')}
             </button>
-          ))}
+          </div>
         </div>
-        <div class="decor-grid">
-          {DECOR.filter((d) => d.slot === slot).map((d) => {
-            const owned = state.room.owned.includes(d.id);
-            const placed = state.room.placed[d.slot] === d.id;
-            return (
-              <div class={`decor ${placed ? 'placed' : ''}`}>
-                <DecorIcon slot={d.slot} v={d.variant} />
-                <div class="small">{L(d.name)}</div>
-                {placed ? (
-                  <button class="btn small ghost" onClick={() => send({ type: 'placeDecor', slot: d.slot, id: null })}>
-                    {t('remove')}
-                  </button>
-                ) : owned ? (
-                  <button class="btn small" onClick={() => send({ type: 'placeDecor', slot: d.slot, id: d.id })}>
-                    {t('place')}
-                  </button>
-                ) : (
-                  <button class="btn small" disabled={state.money < d.cost} onClick={() => send({ type: 'buyDecor', id: d.id })}>
-                    {d.cost} 🪙
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">🐈 {t('catTitle')}</div>
-        {!state.cat ? (
-          <div>
-            <p>{t('catFound')}</p>
-            <div class="row">
-              <input class="input grow" value={catName} maxLength={20} placeholder={t('catNamePlaceholder')} onInput={(e) => setCatName((e.target as HTMLInputElement).value)} />
-              <button class="btn primary" disabled={!catName.trim()} onClick={() => send({ type: 'adoptCat', name: catName })}>
-                {t('catAdopt')}
+      ) : (
+        <div class="cat-card">
+          <CatPortrait mood={state.cat.mood} />
+          <div class="grow">
+            <b>{state.cat.name}</b>
+            <Progress label={t('hunger')} value={state.cat.hunger / 100} />
+            <Progress label={t('mood')} value={state.cat.mood / 100} />
+            <div class="row gap wrap">
+              <button class="btn small" disabled={state.stock.catFood < 1} onClick={() => send({ type: 'feedCat' })}>
+                🐟 {t('feed')}
+              </button>
+              <button class="btn small" disabled={petReadyIn > 0} onClick={() => send({ type: 'petCat' })}>
+                ✋ {t('pet')}
+              </button>
+              <button class="btn small" disabled={p.wallet < CONFIG.catFoodPackCost} onClick={() => send({ type: 'buyCatFood' })}>
+                👛 {t('buyCatFood', { cost: CONFIG.catFoodPackCost })}
               </button>
             </div>
-          </div>
-        ) : (
-          <div class="cat-card">
-            <CatPortrait mood={state.cat.mood} />
-            <div class="grow">
-              <b>{state.cat.name}</b>
-              <Progress label={t('hunger')} value={state.cat.hunger / 100} />
-              <Progress label={t('mood')} value={state.cat.mood / 100} />
-              <div class="row gap">
-                <button class="btn small" disabled={state.stock.catFood < 1} onClick={() => send({ type: 'feedCat' })}>
-                  🐟 {t('feed')}
-                </button>
-                <button class="btn small" disabled={petReadyIn > 0} onClick={() => send({ type: 'petCat' })}>
-                  ✋ {t('pet')}
-                </button>
-              </div>
-              <div class="muted small">
-                {t('catFood', { n: state.stock.catFood })}
-                {petReadyIn > 0 && ` · ${t('petCooldown', { t: fmtDuration(petReadyIn) })}`}
-              </div>
+            <div class="muted small">
+              {t('catFood', { n: state.stock.catFood })}
+              {petReadyIn > 0 && ` · ${t('petCooldown', { t: fmtDuration(petReadyIn) })}`}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -964,6 +1115,8 @@ export function TeamTab() {
         </div>
       )}
 
+      <GiftCard />
+
       <div class="card">
         <div class="card-title">📌 {t('boardTitle')}</div>
         <div class="row">
@@ -972,6 +1125,7 @@ export function TeamTab() {
             {t('send')}
           </button>
         </div>
+        <div class="muted tiny">{t('noteCost', { e: CONFIG.noteEnergy, s: CONFIG.stickerEnergy })}</div>
         <div class="chips stickers">
           {STICKERS.map((s) => (
             <button class={`chip sticker-chip ${sticker === s ? 'on' : ''}`} onClick={() => setSticker(sticker === s ? undefined : s)}>
@@ -999,6 +1153,42 @@ export function TeamTab() {
           {t('leaveCafe')}
         </button>
       )}
+    </div>
+  );
+}
+
+/** Открытки и подарки коллегам: стоят личных денег и бодрости, радуют получателя. */
+function GiftCard() {
+  const { state, me, send } = useGame();
+  const others = humans(state).filter((h) => h.id !== me.id);
+  const [to, setTo] = useState(others[0]?.id ?? '');
+  const [text, setText] = useState('');
+  if (!others.length) return null;
+  const p = getPlayer(state, me.id)!;
+  const target = others.some((o) => o.id === to) ? to : others[0].id;
+  async function go(kind: 'postcard' | 'gift') {
+    const r = await send({ type: 'sendGift', to: target, kind, text });
+    if (r) setText('');
+  }
+  return (
+    <div class="card">
+      <div class="card-title">🎁 {t('giftTitle')}</div>
+      <div class="chips">
+        {others.map((o) => (
+          <button class={`chip ${target === o.id ? 'on' : ''}`} onClick={() => setTo(o.id)}>
+            {o.name}
+          </button>
+        ))}
+      </div>
+      <input class="input" value={text} maxLength={60} placeholder={t('giftText')} onInput={(e) => setText((e.target as HTMLInputElement).value)} />
+      <div class="row gap wrap">
+        <button class="btn small" disabled={p.wallet < CONFIG.postcardCost} onClick={() => go('postcard')}>
+          {t('giftPostcard', { cost: CONFIG.postcardCost, e: CONFIG.postcardEnergy })}
+        </button>
+        <button class="btn small" disabled={p.wallet < CONFIG.giftCost} onClick={() => go('gift')}>
+          {t('giftGift', { cost: CONFIG.giftCost, e: CONFIG.giftEnergy })}
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { createContext } from 'preact';
 import { useContext } from 'preact/hooks';
-import { CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, STOCK_PACKS, UPGRADES, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type UpgradeId, type CafeSlot } from '../core/content';
+import { CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, ROOMS, STOCK_PACKS, UPGRADES, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type UpgradeId, type CafeSlot } from '../core/content';
 import type { ApplyResult } from '../core/engine';
 import type { CafeState, Command, LogEntry } from '../core/types';
 import { L, t } from '../i18n';
@@ -58,7 +58,17 @@ export function describeLog(s: CafeState, e: LogEntry): string {
     sticker: String(p.sticker ?? ''),
     text: String(p.text ?? ''),
     role: p.role ? roleName(String(p.role) as Role).toLowerCase() : '',
+    room: p.room ? roomTitle(s, String(p.room), '') : '',
+    gift: p.kind === 'gift' ? t('giftWordGift') : p.kind === 'postcard' ? t('giftWordPostcard') : '',
   }).replace(/\s+/g, ' ').trim();
+}
+
+/** Название комнаты: «Зал», «Кухня» или «Комната · Имя». */
+export function roomTitle(s: CafeState, key: string, meId: string): string {
+  const r = s.home?.rooms[key];
+  if (!r) return key;
+  if (r.kind !== 'bedroom') return L(ROOMS[r.kind].name);
+  return r.owner === meId ? t('roomMine') : t('roomOf', { name: playerName(s, String(r.owner)) });
 }
 
 export function timeAgo(now: number, at: number): string {

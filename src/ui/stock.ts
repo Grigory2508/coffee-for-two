@@ -21,16 +21,12 @@ export function shiftsLeft(s: CafeState, item: StockId): number {
 
 /** Продукты меню дня, которых не хватит на следующую смену. */
 export function lowStock(s: CafeState): StockId[] {
-  return STOCK_ORDER.filter((k) => k !== 'catFood' && shiftsLeft(s, k) < 1);
+  return STOCK_ORDER.filter((k) => shiftsLeft(s, k) < 1);
 }
 
-/** Склад по срочности: сначала то, что кончится раньше; корм для кота — в конце. */
+/** Склад по срочности: сначала то, что кончится раньше. */
 export function stockByUrgency(s: CafeState): StockId[] {
-  return [...STOCK_ORDER].sort((a, b) => {
-    if (a === 'catFood') return 1;
-    if (b === 'catFood') return -1;
-    return shiftsLeft(s, a) - shiftsLeft(s, b);
-  });
+  return [...STOCK_ORDER].sort((a, b) => shiftsLeft(s, a) - shiftsLeft(s, b));
 }
 
 /** Корзина «до нормы»: докупаем нужное меню дня по срочности, пока хватает денег и места. */
@@ -38,7 +34,7 @@ export function fillBasket(s: CafeState, actor: string): Partial<Record<StockId,
   const basket: Partial<Record<StockId, number>> = {};
   let money = s.money;
   for (const k of stockByUrgency(s)) {
-    if (k === 'catFood' ? !s.cat : perShift(s, k) === 0) continue;
+    if (perShift(s, k) === 0) continue;
     const pack = STOCK_PACKS[k];
     const price = packPrice(s, actor, k);
     let n = 0;

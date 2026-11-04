@@ -12,7 +12,7 @@ import { tg } from '../platform/telegram';
 import { CafeArt } from './icons';
 import { describeLog, GameCtx, timeAgo, useGame, type Game } from './game';
 import { CafeInfoTab, CounterTab, Header, OfficeTab, RoomTab, ShiftResult, TeamTab, teamBadge } from './screens';
-import { digestFor, energyNow, getPlayer } from '../core/engine';
+import { digestFor, getPlayer, vitalsNow } from '../core/engine';
 import { lowStock } from './stock';
 import { Shift } from './Shift';
 
@@ -309,7 +309,7 @@ export function App() {
   const isManager = meP?.role === 'manager';
   const tBadge = teamBadge(view, me.id);
   const lowN = isManager ? lowStock(view).length : 0;
-  const canAgain = !!meP && energyNow(meP, now).energy >= 1;
+  const canAgain = !!meP && vitalsNow(view, meP, now).energy >= vitalsNow(view, meP, now).shiftCost;
   const go = (id: Tab) => {
     tg.haptic('select');
     setTab(id);
@@ -355,7 +355,7 @@ export function App() {
                   [
                     ['work', isManager ? '📋' : '☕', isManager ? t('tabOffice') : t('tabCounter'), lowN],
                     ['cafe', '🏪', t('tabCafe'), 0],
-                    ['home', view.room.unlocked ? '🏠' : '🔒', t('tabHome'), 0],
+                    ['home', '🏠', t('tabHome'), 0],
                     ['team', '💬', t('tabTeam'), tBadge],
                   ] as [Tab, string, string, number][]
                 ).map(([id, icon, label, badge]) => (
@@ -616,7 +616,7 @@ function DebugPanel({ onReset }: { onReset: () => void }) {
         <button class="chip" onClick={() => send({ type: 'debugRefill' })}>
           {t('debugRefill')}
         </button>
-        {!state.room.unlocked && (
+        {Object.values(state.home.rooms).some((r) => !r.open) && (
           <button class="chip" onClick={() => send({ type: 'debugUnlockRoom' })}>
             {t('debugUnlockRoom')}
           </button>

@@ -13,6 +13,7 @@ import {
   UPGRADES,
   CAFE_SLOTS,
   SLOT_MAX,
+  ROOM_SLOTS,
   type CafeSlot,
   otherRole,
   type DrinkId,
@@ -33,6 +34,7 @@ import {
   type PlayerId,
   type ShiftGuest,
   type ShiftPlan,
+  type HomeRoom,
 } from './types.ts';
 
 export const NPC_ID = 'npc';
@@ -134,32 +136,146 @@ export function newInviteKey(seed: string): string {
   return out;
 }
 
-// ---------- энергия ----------
+// ---------- бодрость и счастье ----------
 
-export function energyNow(p: Player, now: number): { energy: number; nextAt: number | null } {
-  if (p.energy >= CONFIG.energyMax) return { energy: CONFIG.energyMax, nextAt: null };
-  const gained = Math.floor(Math.max(0, now - p.energyAt) / CONFIG.energyRegenMs);
-  const energy = Math.min(CONFIG.energyMax, p.energy + gained);
-  if (energy >= CONFIG.energyMax) return { energy, nextAt: null };
-  return { energy, nextAt: p.energyAt + (gained + 1) * CONFIG.energyRegenMs };
-}
-
-function normalizeEnergy(p: Player, now: number) {
-  if (p.energy >= CONFIG.energyMax) {
-    p.energy = CONFIG.energyMax;
-    p.energyAt = now;
-    return;
+/** Что даёт квартира игроку: общие комнаты (зал, кухня) — всем, личная — хозяину. */
+export function homeEffects(s: CafeState, playerId: PlayerId) {
+  let rest = 0;
+  let joy = 0;
+  let shiftCut = 0;
+  for (const r of Object.values(s.home?.rooms ?? {})) {
+    if (!r.open) continue;
+    if (r.kind === 'bedroom' && r.owner !== playerId) continue;
+    for (const id of Object.values(r.placed)) {
+      const d = id ? DECOR_BY_ID[id] : undefined;
+      if (!d) continue;
+      rest += d.rest;
+      joy += d.joy;
+      shiftCut += d.shiftCut;
+    }
   }
-  const gained = Math.floor(Math.max(0, now - p.energyAt) / CONFIG.energyRegenMs);
-  p.energy = Math.min(CONFIG.energyMax, p.energy + gained);
-  p.energyAt = p.energy >= CONFIG.energyMax ? now : p.energyAt + gained * CONFIG.energyRegenMs;
+  const catJoy = s.cat ? Math.round((s.cat.mood / 100) * 8) : 0;
+  const totalJoy = joy + catJoy;
+  return {
+    rest,
+    joy: totalJoy,
+    restPerMin: CONFIG.energyRegenPerMin + rest,
+    joyCap: Math.min(CONFIG.happyMax, CONFIG.happyBaseCap + totalJoy),
+    joyRate: CONFIG.happyRegenPerMin + totalJoy * CONFIG.happyJoyRatePerPoint,
+    shiftCut,
+  };
 }
 
-function spendEnergy(p: Player, now: number, amount = 1) {
-  normalizeEnergy(p, now);
-  if (p.energy < amount) throw new GameError('no_energy');
-  if (p.energy >= CONFIG.energyMax) p.energyAt = now;
-  p.energy -= amount;
+/** Сколько бодрости стоит смена этому игроку (кухня может удешевить). */
+export function shiftCost(s: CafeState, p: Player): number {
+  return Math.max(CONFIG.shiftEnergyMin, CONFIG.shiftEnergy - homeEffects(s, p.id).shiftCut);
+}
+
+/** Бодрость и счастье на момент now (без записи). Счастье тянется к потолку уюта, выше потолка — медленно опускается. */
+export function vitalsNow(s: CafeState, p: Player, now: number) {
+  const e = homeEffects(s, p.id);
+  const min = Math.max(0, now - (p.vitalsAt ?? now)) / 60_000;
+  const energy = Math.min(CONFIG.energyMax, (p.energy ?? CONFIG.energyMax) + e.restPerMin * min);
+  let happy = p.happy ?? CONFIG.happyStart;
+  happy = happy < e.joyCap ? Math.min(e.joyCap, happy + e.joyRate * min) : Math.max(e.joyCap, happy - e.joyRate * min);
+  const full = energy >= CONFIG.energyMax ? 0 : ((CONFIG.energyMax - energy) / e.restPerMin) * 60_000;
+  return { ...e, energy, happy, shiftCost: shiftCost(s, p), fullInMs: full };
+}
+
+/** Совместимость с интерфейсом: бодрость и когда наберётся полная. */
+export function energyNow(s: CafeState, p: Player, now: number): { energy: number; fullInMs: number } {
+  const v = vitalsNow(s, p, now);
+  return { energy: v.energy, fullInMs: v.fullInMs };
+}
+
+function syncVitals(s: CafeState, p: Player, now: number) {
+  if (p.isNpc) return;
+  const v = vitalsNow(s, p, now);
+  p.energy = v.energy;
+  p.happy = v.happy;
+  p.vitalsAt = now;
+}
+
+function spendEnergy(s: CafeState, p: Player, now: number, amount: number) {
+  syncVitals(s, p, now);
+  if (p.energy < amount - 1e-9) throw new GameError('no_energy', { need: amount });
+  p.energy = Math.max(0, p.energy - amount);
+}
+
+function changeHappy(s: CafeState, p: Player, now: number, delta: number) {
+  syncVitals(s, p, now);
+  p.happy = Math.max(0, Math.min(CONFIG.happyMax, p.happy + delta));
+}
+
+/** Радость от записок и подарков — не больше дневного лимита на получателя. */
+function giveSocialJoy(s: CafeState, p: Player, now: number, amount: number): number {
+  const day = dayKey(now);
+  if (p.socialDay !== day) {
+    p.socialDay = day;
+    p.socialJoy = 0;
+  }
+  const got = Math.max(0, Math.min(amount, CONFIG.socialJoyDailyCap - p.socialJoy));
+  if (got > 0) {
+    p.socialJoy += got;
+    changeHappy(s, p, now, got);
+  }
+  return got;
+}
+
+/** Множитель оценки гостя от счастья баристы: 50 → 1, 100 → +18%, 0 → −18%. */
+export function happyRatingMult(happy: number): number {
+  return 1 + CONFIG.happyRatingSpan * ((Math.max(0, Math.min(100, happy)) - 50) / 50);
+}
+
+/** Зарплата: половина выручки поровну всем сотрудникам, остальное — бюджет. Возвращает долю на человека. */
+function payout(s: CafeState, earned: number): number {
+  const hs = humans(s);
+  if (!hs.length || earned <= 0) {
+    s.money += earned;
+    return 0;
+  }
+  const each = Math.floor((earned * CONFIG.salaryShare) / hs.length);
+  for (const h of hs) h.wallet = (h.wallet ?? 0) + each;
+  s.money += earned - each * hs.length;
+  return each;
+}
+
+// ---------- квартира ----------
+
+export const roomCost = (r: HomeRoom) => (r.kind === 'kitchen' ? CONFIG.kitchenCost : r.kind === 'bedroom' ? CONFIG.bedroomCost : 0);
+
+/** Комнаты квартиры: зал (открыт), кухня и личная комната каждого сотрудника. */
+export function ensureHome(s: CafeState) {
+  if (!s.home) s.home = { rooms: {} };
+  const rooms = s.home.rooms;
+  if (!rooms.hall) {
+    rooms.hall = { kind: 'hall', open: true, fund: 0, owned: s.room?.owned ?? [], placed: s.room?.placed ?? {} };
+  }
+  if (!rooms.kitchen) rooms.kitchen = { kind: 'kitchen', open: false, fund: 0, owned: [], placed: {} };
+  for (const h of humans(s)) {
+    const key = `bed:${h.id}`;
+    if (!rooms[key]) rooms[key] = { kind: 'bedroom', owner: h.id, open: false, fund: 0, owned: [], placed: {} };
+  }
+  // Комнаты ушедших сотрудников убираем
+  for (const key of Object.keys(rooms)) {
+    const r = rooms[key];
+    if (r.kind === 'bedroom' && !humans(s).some((h) => h.id === r.owner)) delete rooms[key];
+  }
+}
+
+/** Порядок комнат для листания: общие, потом своя, потом остальных. */
+export function roomOrder(s: CafeState, meId: PlayerId): string[] {
+  const keys = Object.keys(s.home?.rooms ?? {});
+  const beds = keys.filter((k) => k.startsWith('bed:'));
+  const mine = beds.filter((k) => k === `bed:${meId}`);
+  const others = beds.filter((k) => k !== `bed:${meId}`);
+  return ['hall', 'kitchen', ...mine, ...others].filter((k) => keys.includes(k));
+}
+
+function getRoom(s: CafeState, key: string | undefined): HomeRoom {
+  const r = s.home.rooms[key ?? 'hall'];
+  if (!r) throw new GameError('bad_room');
+  return r;
 }
 
 // ---------- рейтинг, ворота, склад ----------
@@ -170,16 +286,6 @@ export function rating(s: CafeState): number | null {
   return Math.round(avg * 50) / 10; // 0..5 с шагом 0.1
 }
 
-export function roomGate(s: CafeState) {
-  const stars = rating(s) ?? 0;
-  return {
-    stars,
-    shifts: s.stats.shifts,
-    needStars: CONFIG.roomGateStars,
-    needShifts: CONFIG.roomGateShifts,
-    met: stars >= CONFIG.roomGateStars && s.stats.shifts >= CONFIG.roomGateShifts,
-  };
-}
 
 export function capacity(s: CafeState, item: StockId): number {
   if (item === 'milk' && s.upgrades.fridge) return CONFIG.fridgeMilkCapacity;
@@ -276,7 +382,11 @@ function newPlayer(id: PlayerId, name: string, slot: number, isNpc: boolean, rol
     isNpc,
     role,
     energy: CONFIG.energyMax,
-    energyAt: now,
+    happy: CONFIG.happyStart,
+    vitalsAt: now,
+    wallet: isNpc ? 0 : CONFIG.walletStart,
+    socialDay: '',
+    socialJoy: 0,
     baristaXp: 0,
     managerXp: 0,
     joinedAt: now,
@@ -321,7 +431,7 @@ export function createCafe(opts: {
     office: null,
     applications: [],
     marketing: null,
-    room: { unlocked: false, owned: [], placed: {} },
+    home: { rooms: {} },
     cat: null,
     board: [],
     log: [],
@@ -331,6 +441,7 @@ export function createCafe(opts: {
     nextNpcAt: now + CONFIG.npcShiftEveryMs,
     alerts: { stockLowAt: 0, catHungryAt: 0 },
   };
+  ensureHome(s);
   addLog(s, now, opts.owner.id, 'cafe_opened', { role });
   return s;
 }
@@ -365,7 +476,7 @@ function npcShift(s: CafeState, at: number, covering: boolean) {
     served += 1;
     pushRating(s, 0.6);
   }
-  s.money += earned;
+  payout(s, earned);
   s.stats.earned += earned;
   s.week.points += served * 6;
   addLog(s, at, NPC_ID, covering ? 'npc_cover' : 'npc_shift', { role: 'barista', earned, served });
@@ -406,7 +517,8 @@ function pushRating(s: CafeState, v: number) {
 /** Прокрутить мир до момента now: энергия, NPC, кот, неделя, напоминания. Мутирует s. */
 export function advanceMut(s: CafeState, now: number) {
   if (now < s.updatedAt) now = s.updatedAt; // время не идёт назад
-  for (const p of s.players) normalizeEnergy(p, now);
+  ensureHome(s);
+  for (const p of s.players) syncVitals(s, p, now);
 
   let guard = 0;
   while (s.nextNpcAt <= now && guard < 8) {
@@ -441,10 +553,6 @@ export function advanceMut(s: CafeState, now: number) {
   const wk = weekId(now);
   if (wk !== s.week.id) s.week = { id: wk, points: 0 };
 
-  if (!s.room.unlocked && roomGate(s).met) {
-    s.room.unlocked = true;
-    addLog(s, now, 'system', 'room_unlocked');
-  }
   s.updatedAt = now;
 }
 
@@ -497,6 +605,10 @@ export interface ShiftSummary {
   cleanliness: number;
   /** Выручка витрины: выпечка гостей, которые пьют здесь. */
   pastry: number;
+  /** Зарплата каждого сотрудника с этой смены. */
+  salary: number;
+  /** Как счастье баристы сдвинуло оценки гостей (множитель). */
+  happyMult: number;
 }
 
 export function tipFor(s: CafeState, p: Player, drink: DrinkId, waitMs: number, patienceMs: number, cat: boolean, tipBonus = 0): number {
@@ -516,7 +628,7 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
   // Командный бонус: в этот день работали хотя бы двое
   const activeToday = humans(s).filter((h) => h.id === actor || h.days.includes(today)).length;
   const coop = activeToday >= 2 ? 1.2 : 1;
-  const sum: ShiftSummary = { earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0, cleanliness, pastry: 0 };
+  const sum: ShiftSummary = { earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0, cleanliness, pastry: 0, salary: 0, happyMult: 1 };
 
   plan.guests.forEach((g, i) => {
     const r = byIdx.get(i);
@@ -558,13 +670,16 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
       sum.left += 1;
       s.stats.guestsLost += 1;
     }
-    // Грязные столики портят впечатление
+    // Грязные столики портят впечатление; счастливый бариста обслуживает лучше (±18%)
     sat *= 0.8 + 0.2 * cleanliness;
+    if (outcome !== 'left') sat *= happyRatingMult(plan.happy ?? 50);
     pushRating(s, sat);
     sum.points += Math.round(sat * 10 * coop);
   });
 
-  s.money += sum.earned;
+  sum.salary = payout(s, sum.earned);
+  sum.happyMult = happyRatingMult(plan.happy ?? 50);
+  changeHappy(s, p, at, -CONFIG.shiftHappyCost);
   s.stats.earned += sum.earned;
   s.stats.guestsServed += sum.served;
   s.stats.shifts += 1;
@@ -587,6 +702,15 @@ function markDay(p: Player, at: number) {
     p.days.push(d);
     if (p.days.length > 60) p.days.shift();
   }
+}
+
+function requireWallet(p: Player, cost: number) {
+  if ((p.wallet ?? 0) < cost) throw new GameError('no_wallet', { need: cost - (p.wallet ?? 0) });
+}
+
+/** Перед изменением квартиры: досчитать шкалы всем по старым эффектам. */
+function syncAll(s: CafeState, at: number) {
+  for (const h of s.players) syncVitals(s, h, at);
 }
 
 function requireMoney(s: CafeState, cost: number) {
@@ -630,6 +754,7 @@ function tryFinalize(s: CafeState, appId: PlayerId, at: number): boolean {
   s.applications = s.applications.filter((a) => a.id !== appId);
   s.players.push(newPlayer(app.id, app.name, s.players.length, false, app.role, at));
   syncNpc(s, at);
+  ensureHome(s);
   addLog(s, at, app.id, 'staff_joined', { name: app.name, role: app.role });
   return true;
 }
@@ -709,8 +834,9 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       }
       const busy = counterHolder(s, actor, at);
       if (busy) throw new GameError('counter_busy', { name: busy.name });
-      spendEnergy(p, at);
+      spendEnergy(s, p, at, shiftCost(s, p));
       const plan = makeShiftPlan(s, actor, at);
+      plan.happy = Math.round(p.happy);
       s.activeShifts[actor] = plan;
       if (s.marketing) {
         s.marketing.shiftsLeft -= 1;
@@ -735,8 +861,8 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       break;
     }
     case 'supplyRun': {
-      // Одна поездка к поставщику = 1 сила, сколько угодно упаковок в пределах склада и денег
-      const entries = (Object.entries(cmd.items ?? {}) as [StockId, number][]).filter(([k, n]) => STOCK_PACKS[k] && Number.isInteger(n) && n > 0);
+      // Одна поездка к поставщику = 20 бодрости (корм кота — только из личных денег), сколько угодно упаковок в пределах склада и денег
+      const entries = (Object.entries(cmd.items ?? {}) as [StockId, number][]).filter(([k, n]) => k !== 'catFood' && STOCK_PACKS[k] && Number.isInteger(n) && n > 0);
       if (!entries.length) throw new GameError('empty_order');
       let cost = 0;
       for (const [k, n] of entries) {
@@ -745,7 +871,8 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
         cost += packPrice(s, actor, k) * n;
       }
       requireMoney(s, cost);
-      spendEnergy(p, at, CONFIG.managerTaskCost);
+      spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
+      changeHappy(s, p, at, -CONFIG.managerHappyCost);
       s.money -= cost;
       for (const [k, n] of entries) s.stock[k] += STOCK_PACKS[k].amount * n;
       p.managerXp += 10 * entries.length;
@@ -758,7 +885,8 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       if (!up) throw new GameError('bad_item');
       if (s.upgrades[cmd.id]) throw new GameError('owned');
       requireMoney(s, up.cost);
-      spendEnergy(p, at, CONFIG.managerTaskCost);
+      spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
+      changeHappy(s, p, at, -CONFIG.managerHappyCost);
       s.money -= up.cost;
       s.upgrades[cmd.id] = true;
       p.managerXp += 25;
@@ -773,7 +901,8 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       if (cur >= SLOT_MAX) throw new GameError('owned');
       const cost = slot.levels[cur].cost;
       requireMoney(s, cost);
-      spendEnergy(p, at, CONFIG.managerTaskCost);
+      spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
+      changeHappy(s, p, at, -CONFIG.managerHappyCost);
       s.money -= cost;
       s.levels[cmd.slot] = cur + 1;
       p.managerXp += 25;
@@ -786,7 +915,8 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       if (!m) throw new GameError('bad_item');
       if (s.marketing) throw new GameError('marketing_active');
       requireMoney(s, m.cost);
-      spendEnergy(p, at, CONFIG.managerTaskCost);
+      spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
+      changeHappy(s, p, at, -CONFIG.managerHappyCost);
       s.money -= m.cost;
       s.marketing = { id: cmd.id, guests: m.guests, tipBonus: m.tipBonus, shiftsLeft: m.shifts };
       p.managerXp += 15;
@@ -917,35 +1047,89 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       return out;
     }
     case 'buyDecor': {
-      if (!s.room.unlocked) throw new GameError('room_locked');
+      const room = getRoom(s, cmd.room);
+      if (!room.open) throw new GameError('room_locked');
+      if (room.kind === 'bedroom' && room.owner !== actor) throw new GameError('not_your_room');
       const item = DECOR_BY_ID[cmd.id];
-      if (!item) throw new GameError('bad_item');
-      if (s.room.owned.includes(item.id)) throw new GameError('owned');
-      requireMoney(s, item.cost);
-      s.money -= item.cost;
-      s.room.owned.push(item.id);
-      s.room.placed[item.slot] = item.id; // сразу ставим купленное
+      if (!item || !ROOM_SLOTS[room.kind].includes(item.slot)) throw new GameError('bad_item');
+      if (room.owned.includes(item.id)) throw new GameError('owned');
+      requireWallet(p, item.cost);
+      syncAll(s, at); // эффекты квартиры меняются — сначала досчитываем шкалы всем
+      p.wallet -= item.cost;
+      room.owned.push(item.id);
+      room.placed[item.slot] = item.id; // сразу ставим купленное
       markDay(p, at);
       addLog(s, at, actor, 'decor_bought', { id: item.id });
       break;
     }
     case 'placeDecor': {
-      if (!s.room.unlocked) throw new GameError('room_locked');
+      const room = getRoom(s, cmd.room);
+      if (!room.open) throw new GameError('room_locked');
+      if (room.kind === 'bedroom' && room.owner !== actor) throw new GameError('not_your_room');
+      syncAll(s, at);
       if (cmd.id === null) {
-        delete s.room.placed[cmd.slot];
+        delete room.placed[cmd.slot];
       } else {
         const item = DECOR_BY_ID[cmd.id];
-        if (!item || item.slot !== cmd.slot || !s.room.owned.includes(item.id)) throw new GameError('bad_item');
-        s.room.placed[cmd.slot] = item.id;
+        if (!item || item.slot !== cmd.slot || !room.owned.includes(item.id)) throw new GameError('bad_item');
+        room.placed[cmd.slot] = item.id;
         addLog(s, at, actor, 'decor_placed', { id: item.id });
       }
       break;
     }
+    case 'contributeRoom': {
+      const room = getRoom(s, cmd.room);
+      if (room.open) throw new GameError('owned');
+      const need = roomCost(room) - room.fund;
+      const amount = Math.min(Math.floor(Number(cmd.amount) || 0), need);
+      if (amount <= 0) throw new GameError('bad_amount');
+      requireWallet(p, amount);
+      p.wallet -= amount;
+      room.fund += amount;
+      markDay(p, at);
+      addLog(s, at, actor, 'room_funded', { room: cmd.room, amount, owner: room.owner ?? '' });
+      if (room.fund >= roomCost(room)) {
+        syncAll(s, at);
+        room.open = true;
+        addLog(s, at, 'system', 'room_opened', { room: cmd.room, owner: room.owner ?? '' });
+      }
+      break;
+    }
+    case 'transferToBudget': {
+      const amount = Math.floor(Number(cmd.amount) || 0);
+      if (amount <= 0) throw new GameError('bad_amount');
+      requireWallet(p, amount);
+      p.wallet -= amount;
+      s.money += amount;
+      addLog(s, at, actor, 'budget_topup', { amount });
+      break;
+    }
+    case 'buyCatFood': {
+      requireWallet(p, CONFIG.catFoodPackCost);
+      p.wallet -= CONFIG.catFoodPackCost;
+      s.stock.catFood += CONFIG.catFoodPackAmount;
+      markDay(p, at);
+      addLog(s, at, actor, 'stock_bought', { item: 'catFood', cost: CONFIG.catFoodPackCost });
+      break;
+    }
+    case 'sendGift': {
+      const to = getPlayer(s, cmd.to);
+      if (!to || to.isNpc || to.id === actor) throw new GameError('bad_target');
+      const gift = cmd.kind === 'gift';
+      const cost = gift ? CONFIG.giftCost : CONFIG.postcardCost;
+      requireWallet(p, cost);
+      spendEnergy(s, p, at, gift ? CONFIG.giftEnergy : CONFIG.postcardEnergy);
+      p.wallet -= cost;
+      const joy = giveSocialJoy(s, to, at, gift ? CONFIG.joyFromGift : CONFIG.joyFromPostcard);
+      markDay(p, at);
+      addLog(s, at, actor, 'gift_sent', { to: to.id, toName: to.name, kind: cmd.kind, joy, text: (cmd.text ?? '').trim().slice(0, 60) });
+      break;
+    }
     case 'adoptCat': {
-      if (!s.room.unlocked) throw new GameError('room_locked');
       if (s.cat) throw new GameError('owned');
       const name = cmd.name.trim().slice(0, 20);
       if (!name) throw new GameError('bad_name');
+      syncAll(s, at);
       s.cat = { name, hunger: 80, mood: 80, updatedAt: at };
       s.stock.catFood += 5; // стартовый пакет корма
       markDay(p, at);
@@ -967,6 +1151,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       if (at - p.lastPetAt < CONFIG.catPetCooldownMs) throw new GameError('cooldown', { at: p.lastPetAt + CONFIG.catPetCooldownMs });
       p.lastPetAt = at;
       s.cat.mood = Math.min(100, s.cat.mood + 20);
+      changeHappy(s, p, at, CONFIG.petJoy);
       markDay(p, at);
       addLog(s, at, actor, 'cat_petted', { name: s.cat.name });
       break;
@@ -974,8 +1159,11 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     case 'postNote': {
       const text = cmd.text.trim().slice(0, CONFIG.noteMaxLen);
       if (!text && !cmd.sticker) throw new GameError('empty_note');
+      spendEnergy(s, p, at, text ? CONFIG.noteEnergy : CONFIG.stickerEnergy);
       s.board.push({ id: `${at}-${s.logSeq}`, author: actor, text, sticker: cmd.sticker, at });
       if (s.board.length > CONFIG.boardMax) s.board.splice(0, s.board.length - CONFIG.boardMax);
+      // записка радует всю остальную команду
+      for (const h of humans(s)) if (h.id !== actor) giveSocialJoy(s, h, at, text ? CONFIG.joyFromNote : CONFIG.joyFromSticker);
       addLog(s, at, actor, 'note', { text: text.slice(0, 60), sticker: cmd.sticker ?? '' });
       break;
     }
@@ -985,14 +1173,16 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     }
     case 'debugRefill': {
       p.energy = CONFIG.energyMax;
-      p.energyAt = at;
+      p.happy = CONFIG.happyMax;
+      p.vitalsAt = at;
       s.money += 1000;
+      p.wallet += 500;
       break;
     }
     case 'debugUnlockRoom': {
-      // Отладка: открыть квартиру над кофейней, не выполняя цель (3★ и 8 смен)
-      if (s.room.unlocked) throw new GameError('owned');
-      s.room.unlocked = true;
+      // Отладка: открыть кухню и все личные комнаты без взносов
+      syncAll(s, at);
+      for (const r of Object.values(s.home.rooms)) r.open = true;
       addLog(s, at, 'system', 'room_unlocked');
       break;
     }
@@ -1045,7 +1235,24 @@ export function migrate(s: CafeState): CafeState {
   x.players.forEach((p, i) => {
     if (!p.role) p.role = i === 0 ? 'barista' : 'manager';
     if (!p.lastActionAt) p.lastActionAt = p.lastSeenAt;
+    // Бодрость была 0..3 «силы» — переводим в шкалу 0..100; добавляем счастье и кошелёк
+    const old = p as Player & { energyAt?: number };
+    if (p.vitalsAt === undefined) {
+      p.energy = p.energy <= 3 ? Math.round((p.energy / 3) * 100) : p.energy;
+      p.vitalsAt = old.energyAt ?? Date.now();
+      delete old.energyAt;
+    }
+    if (p.happy === undefined) p.happy = CONFIG.happyStart;
+    if (p.wallet === undefined) p.wallet = p.isNpc ? 0 : CONFIG.walletStart;
+    if (p.socialDay === undefined) {
+      p.socialDay = '';
+      p.socialJoy = 0;
+    }
   });
+  if (!x.home) {
+    ensureHome(x);
+    delete x.room;
+  }
   if (x.players.length === 2 && x.players[0].role === x.players[1].role) x.players[1].role = otherRole(x.players[0].role);
   return x;
 }

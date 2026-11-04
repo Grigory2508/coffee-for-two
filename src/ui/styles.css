@@ -2326,3 +2326,83 @@ button.hud-chip {
   align-self: flex-start;
   margin-left: 36px;
 }
+
+/* ---------- бодрость / счастье / кошелёк ---------- */
+.hud { position: sticky; }
+.vitals-chip {
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+}
+.vitals-chip > span { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; }
+.meters { display: inline-flex !important; flex-direction: column; gap: 3px; }
+.meters i {
+  display: block;
+  width: 30px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.meters u { display: block; height: 100%; text-decoration: none; transition: width 0.4s; }
+.m-energy { background: var(--caramel); }
+.m-happy { background: var(--rose); }
+.vitals-sheet {
+  position: absolute;
+  top: 100%;
+  right: 8px;
+  left: 8px;
+  margin-top: 4px;
+  z-index: 30;
+  box-shadow: 0 10px 30px #0003;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vitals-sheet .input { width: 90px; }
+.tiny { font-size: 11px; }
+.row.wrap { flex-wrap: wrap; }
+.center-row { justify-content: center; flex-wrap: wrap; }
+
+/* ---------- комнаты: листание ---------- */
+.room-dots {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.room-dot {
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.room-dot.on { background: var(--coffee); color: var(--cream); border-color: var(--coffee); }
+.room-dot.locked:not(.on) { color: var(--muted); }
+.room-pager {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  gap: 0;
+  margin: 0 -14px;
+}
+.room-pager::-webkit-scrollbar, .room-dots::-webkit-scrollbar { display: none; }
+.room-page {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  padding: 0 14px;
+  min-height: 200px;
+}
+.room-wrap { display: flex; flex-direction: column; gap: 10px; }
+.scene-locked { filter: grayscale(0.85) brightness(0.8); }
+.decor .tiny { min-height: 14px; }
+
+.hud-name { min-width: 72px; }
+.hud-stats { gap: 4px; }

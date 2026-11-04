@@ -1,5 +1,5 @@
 // Векторные заглушки вместо финального арта (Nano Banana 2 — после выбора стиля).
-import type { DecorSlot } from '../core/content';
+import type { DecorSlot, RoomKind } from '../core/content';
 
 const PAL: [string, string][] = [
   ['#c9b49c', '#8c7a66'],
@@ -147,6 +147,84 @@ function Decor({ slot, v }: { slot: DecorSlot; v: number }) {
           {v === 2 && <circle cx="16" cy="36" r="30" fill="#ffd98a33" />}
         </g>
       );
+    case 'stove':
+      return (
+        <g>
+          <rect x="0" y="0" width="70" height="80" rx="4" fill={v === 2 ? '#2e2420' : '#e9e4dc'} stroke={b} stroke-width="2" />
+          <rect x="0" y="0" width="70" height="10" rx="3" fill={b} />
+          <circle cx="18" cy="5" r="3" fill={a} />
+          <circle cx="52" cy="5" r="3" fill={a} />
+          <rect x="8" y="22" width="54" height="40" rx="4" fill={v === 2 ? '#4a3a33' : '#fff'} stroke={b} stroke-width="2" />
+          {v >= 1 && <rect x="14" y="28" width="42" height="6" rx="2" fill="#ffb86b88" />}
+          <rect x="22" y="14" width="26" height="4" rx="2" fill={b} />
+        </g>
+      );
+    case 'fridge':
+      return (
+        <g>
+          <rect x="0" y="0" width="50" height="120" rx="7" fill={v === 1 ? '#bfe0ea' : v === 2 ? '#e8a598' : '#f4f1ea'} stroke={b} stroke-width="2" />
+          <path d="M0 42 h50" stroke={b} stroke-width="2" />
+          <rect x="40" y="16" width="4" height="18" rx="2" fill={b} />
+          <rect x="40" y="54" width="4" height="26" rx="2" fill={b} />
+          {v >= 1 && <circle cx="14" cy="60" r="4" fill={a} />}
+          {v === 2 && <rect x="10" y="70" width="12" height="9" fill="#fff" />}
+        </g>
+      );
+    case 'dining':
+      return (
+        <g>
+          <rect x="18" y="0" width="84" height="9" rx="3" fill={b} />
+          <rect x="26" y="9" width="6" height="40" fill={b} />
+          <rect x="88" y="9" width="6" height="40" fill={b} />
+          <path d="M0 14 v36 M0 30 h14 v20" stroke={a} stroke-width="5" fill="none" />
+          <path d="M120 14 v36 M120 30 h-14 v20" stroke={a} stroke-width="5" fill="none" />
+          {v >= 1 && <ellipse cx="60" cy="-3" rx="12" ry="4" fill="#f6efe6" />}
+          {v === 2 && <path d="M80 -2 v-12" stroke="#f6c24b" stroke-width="3" />}
+        </g>
+      );
+    case 'coffeemaker':
+      return (
+        <g>
+          <rect x="0" y="0" width="34" height="40" rx="4" fill={v === 2 ? '#9aa5ad' : a} />
+          <rect x="6" y="6" width="22" height="8" rx="2" fill={b} />
+          <rect x="10" y="26" width="14" height="12" rx="2" fill="#f6efe6" />
+          {v >= 1 && <circle cx="28" cy="20" r="3" fill="#7ec27a" />}
+        </g>
+      );
+    case 'bed':
+      return (
+        <g>
+          <rect x="0" y="0" width="14" height="60" rx="4" fill={b} />
+          <rect x="10" y="28" width="150" height="26" rx="6" fill="#f6efe6" />
+          <rect x="50" y="22" width="110" height="30" rx="8" fill={a} />
+          <rect x="16" y="20" width="30" height="14" rx="6" fill="#fff" />
+          <rect x="10" y="54" width="6" height="10" fill={b} />
+          <rect x="150" y="54" width="6" height="10" fill={b} />
+          {v === 2 && <path d="M60 36 h90" stroke={b} stroke-width="3" stroke-dasharray="6 6" />}
+        </g>
+      );
+    case 'desk':
+      return (
+        <g>
+          <rect x="0" y="30" width="80" height="8" rx="2" fill={b} />
+          <rect x="4" y="38" width="5" height="36" fill={b} />
+          <rect x="54" y="38" width="22" height="36" rx="2" fill={a} />
+          {v >= 1 && <rect x="14" y="8" width="30" height="20" rx="2" fill="#2e2420" />}
+          {v === 2 && <path d="M66 30 v-18 l-8 -6" stroke="#2e2420" stroke-width="3" fill="none" />}
+          {v === 0 && <rect x="16" y="22" width="20" height="8" fill="#f6efe6" />}
+        </g>
+      );
+    case 'wardrobe':
+      return (
+        <g>
+          <rect x="0" y="0" width="66" height="126" rx="4" fill={a} stroke={b} stroke-width="3" />
+          <path d="M33 4 v118" stroke={b} stroke-width="2" />
+          <circle cx="28" cy="64" r="2.5" fill={b} />
+          <circle cx="38" cy="64" r="2.5" fill={b} />
+          {v >= 1 && <rect x="8" y="10" width="18" height="40" rx="2" fill="#ffffff55" />}
+          {v === 2 && <rect x="40" y="10" width="18" height="40" rx="2" fill="#ffffff55" />}
+        </g>
+      );
     case 'plant':
       return (
         <g>
@@ -168,35 +246,65 @@ function Decor({ slot, v }: { slot: DecorSlot; v: number }) {
   }
 }
 
-const SLOT_POS: Record<DecorSlot, { x: number; y: number; w: number; h: number }> = {
-  wall: { x: 150, y: 40, w: 64, h: 46 },
-  window: { x: 30, y: 36, w: 86, h: 70 },
-  shelf: { x: 254, y: 50, w: 74, h: 28 },
-  lamp: { x: 300, y: 112, w: 32, h: 104 },
-  sofa: { x: 136, y: 150, w: 120, h: 56 },
-  rug: { x: 116, y: 214, w: 160, h: 32 },
-  table: { x: 54, y: 180, w: 54, h: 34 },
-  plant: { x: 18, y: 152, w: 40, h: 64 },
+type Pos = { x: number; y: number; w: number; h: number };
+
+const ROOM_POS: Record<RoomKind, Partial<Record<DecorSlot, Pos>>> = {
+  hall: {
+    wall: { x: 150, y: 40, w: 64, h: 46 },
+    window: { x: 30, y: 36, w: 86, h: 70 },
+    shelf: { x: 254, y: 50, w: 74, h: 28 },
+    lamp: { x: 300, y: 112, w: 32, h: 104 },
+    sofa: { x: 136, y: 150, w: 120, h: 56 },
+    rug: { x: 116, y: 214, w: 160, h: 32 },
+    table: { x: 54, y: 180, w: 54, h: 34 },
+    plant: { x: 18, y: 152, w: 40, h: 64 },
+  },
+  kitchen: {
+    window: { x: 140, y: 36, w: 86, h: 70 },
+    shelf: { x: 250, y: 52, w: 74, h: 28 },
+    stove: { x: 20, y: 132, w: 70, h: 80 },
+    fridge: { x: 290, y: 92, w: 50, h: 120 },
+    coffeemaker: { x: 100, y: 132, w: 34, h: 40 },
+    dining: { x: 150, y: 168, w: 120, h: 50 },
+    plant: { x: 96, y: 40, w: 40, h: 64 },
+  },
+  bedroom: {
+    wall: { x: 140, y: 40, w: 64, h: 46 },
+    lamp: { x: 120, y: 112, w: 32, h: 104 },
+    bed: { x: 160, y: 152, w: 164, h: 64 },
+    desk: { x: 20, y: 138, w: 80, h: 74 },
+    wardrobe: { x: 280, y: 24, w: 66, h: 126 },
+    rug: { x: 100, y: 218, w: 160, h: 32 },
+    plant: { x: 230, y: 40, w: 40, h: 64 },
+  },
 };
 
-export function RoomScene({ placed, catMood, onSlot }: { placed: Partial<Record<DecorSlot, string>>; catMood: number | null; onSlot?: (s: DecorSlot) => void }) {
+const ALL_POS: Record<DecorSlot, Pos> = Object.assign({}, ROOM_POS.bedroom, ROOM_POS.kitchen, ROOM_POS.hall) as Record<DecorSlot, Pos>;
+
+const WALL: Record<RoomKind, [string, string]> = {
+  hall: ['#efe1cc', '#c9a27e'],
+  kitchen: ['#e3ece6', '#d8c4a8'],
+  bedroom: ['#e9e0ef', '#b89a7c'],
+};
+
+export function RoomScene({ kind = 'hall', placed, catMood, onSlot, locked }: { kind?: RoomKind; placed: Partial<Record<DecorSlot, string>>; catMood: number | null; onSlot?: (s: DecorSlot) => void; locked?: boolean }) {
+  const pos = ROOM_POS[kind];
+  const [wall, floor] = WALL[kind];
   return (
-    <svg viewBox="0 0 360 260" class="scene" role="img" aria-label="room">
-      <rect width="360" height="200" fill="#efe1cc" />
-      <rect y="200" width="360" height="60" fill="#c9a27e" />
+    <svg viewBox="0 0 360 260" class={`scene ${locked ? 'scene-locked' : ''}`} role="img" aria-label={kind}>
+      <rect width="360" height="200" fill={wall} />
+      {kind === 'kitchen' && Array.from({ length: 12 }, (_, i) => <rect x={i * 30} y="120" width="29" height="14" fill="#fff6" />)}
+      <rect y="200" width="360" height="60" fill={floor} />
       <path d="M0 200 h360" stroke="#a9825f" stroke-width="3" />
-      <rect x="36" y="40" width="74" height="62" fill="#bfe0ea" stroke="#fff" stroke-width="4" />
-      {(Object.keys(SLOT_POS) as DecorSlot[]).map((slot) => {
-        const pos = SLOT_POS[slot];
+      {kind !== 'bedroom' && <rect x={(pos.window?.x ?? 30) + 6} y="40" width="74" height="62" fill="#bfe0ea" stroke="#fff" stroke-width="4" />}
+      {kind === 'kitchen' && <rect x="10" y="126" width="140" height="8" rx="2" fill="#8c7a66" />}
+      {(Object.keys(pos) as DecorSlot[]).map((slot) => {
+        const p = pos[slot]!;
         const id = placed[slot];
         const v = id ? Number(id.split('-')[1]) : -1;
         return (
-          <g transform={`translate(${pos.x} ${pos.y})`} onClick={() => onSlot?.(slot)} class={onSlot ? 'slot' : ''}>
-            {v >= 0 ? (
-              <Decor slot={slot} v={v} />
-            ) : (
-              <rect width={pos.w} height={pos.h} rx="6" fill="#ffffff55" stroke="#a9825f" stroke-dasharray="5 4" />
-            )}
+          <g transform={`translate(${p.x} ${p.y})`} onClick={() => onSlot?.(slot)} class={onSlot ? 'slot' : ''}>
+            {v >= 0 ? <Decor slot={slot} v={v} /> : <rect width={p.w} height={p.h} rx="6" fill="#ffffff55" stroke="#a9825f" stroke-dasharray="5 4" />}
           </g>
         );
       })}
@@ -210,7 +318,7 @@ export function RoomScene({ placed, catMood, onSlot }: { placed: Partial<Record<
 }
 
 export function DecorIcon({ slot, v }: { slot: DecorSlot; v: number }) {
-  const pos = SLOT_POS[slot];
+  const pos = ALL_POS[slot];
   const pad = 10;
   const extraTop = slot === 'table' ? 12 : slot === 'plant' ? 4 : slot === 'sofa' ? 0 : 0;
   return (

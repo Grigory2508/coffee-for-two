@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, DRINKS, type Role } from './content';
-import { apply, createCafe, digestFor, energyNow, freeRoles, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, roleCount, todayMenu, weekId } from './engine';
+import { CONFIG, DECOR_BY_ID, DRINKS, type Role } from './content';
+import { apply, createCafe, digestFor, energyNow, happyRatingMult, vitalsNow, freeRoles, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, roleCount, todayMenu, weekId } from './engine';
 import type { CafeState, Command, GuestResult } from './types';
 
 const T0 = Date.UTC(2026, 10, 2, 9, 0, 0); // понедельник
@@ -163,11 +163,14 @@ describe('роли', () => {
 describe('силы', () => {
   it('смена баристы тратит силу, силы восстанавливаются', () => {
     let s = fresh('barista');
-    for (let i = 0; i < 3; i++) s = perfectShift(s, 'a', T0 + i * 120_000).state;
+    for (let i = 0; i < 3; i++) s = perfectShift(s, 'a', T0 + i * 1000).state;
     const p = getPlayer(s, 'a')!;
-    expect(energyNow(p, T0 + 400_000).energy).toBe(0);
-    expect(() => run(s, 'a', { type: 'startShift' }, T0 + 400_000)).toThrow('no_energy');
-    expect(energyNow(p, T0 + CONFIG.energyRegenMs + 1000).energy).toBe(1);
+    const now = T0 + 3000;
+    expect(Math.round(energyNow(s, p, now).energy)).toBe(10);
+    expect(() => run(s, 'a', { type: 'startShift' }, now)).toThrow('no_energy');
+    // восстанавливается понемногу: N единиц в минуту
+    const later = energyNow(s, p, now + 100 * 60_000).energy;
+    expect(later).toBeCloseTo(10 + CONFIG.energyRegenPerMin * 100, 0);
   });
 
   it('у управляющего свои силы: поездка, расширение, реклама — по 1, меню бесплатно', () => {
@@ -176,9 +179,11 @@ describe('силы', () => {
     expect(s.stock.beans).toBe(40);
     expect(s.stock.syrup).toBe(10);
     s = run(s, 'a', { type: 'unlockDrink', id: 'latte' }, T0).state;
-    expect(getPlayer(s, 'a')!.energy).toBe(2);
+    expect(getPlayer(s, 'a')!.energy).toBe(80);
     s = run(s, 'a', { type: 'upgradeSlot', slot: 'tables' }, T0).state;
     s = run(s, 'a', { type: 'launchMarketing', id: 'flyers' }, T0).state;
+    s = run(s, 'a', { type: 'supplyRun', items: { cocoa: 1 } }, T0).state;
+    s = run(s, 'a', { type: 'supplyRun', items: { cocoa: 1 } }, T0).state;
     expect(getPlayer(s, 'a')!.energy).toBe(0);
     expect(() => run(s, 'a', { type: 'supplyRun', items: { milk: 1 } }, T0)).toThrow('no_energy');
   });
@@ -272,20 +277,67 @@ describe('напарник: NPC, замена, выход', () => {
 });
 
 describe('ворота, квартира, кот', () => {
-  it('квартира открывается после 3★ и 8 смен; быт доступен обоим', () => {
+  it('зал открыт сразу, кухня и личные комнаты — общими взносами', () => {
     let s = join(fresh('barista'));
-    let t = T0;
-    for (let i = 0; i < 8; i++) {
-      s = run(s, 'a', { type: 'debugRefill' }, t).state;
-      s = { ...s, stock: { ...s.stock, milk: 20, beans: 20 } };
-      s = perfectShift(s, 'a', t).state;
-      t += 10 * 60_000;
-    }
-    expect(s.room.unlocked).toBe(true);
-    s = run(s, 'b', { type: 'adoptCat', name: 'Барсик' }, t).state; // управляющий тоже может
+    const t = T0;
+    expect(s.home.rooms.hall.open).toBe(true);
+    expect(s.home.rooms.kitchen.open).toBe(false);
+    expect(s.home.rooms['bed:a'].open).toBe(false);
+    s = run(s, 'b', { type: 'adoptCat', name: 'Барсик' }, t).state;
     s = run(s, 'a', { type: 'feedCat' }, t).state;
     s = run(s, 'b', { type: 'buyDecor', id: 'plant-0' }, t).state;
-    expect(s.room.placed.plant).toBe('plant-0');
+    expect(s.home.rooms.hall.placed.plant).toBe('plant-0');
+    expect(getPlayer(s, 'b')!.wallet).toBe(CONFIG.walletStart - DECOR_BY_ID['plant-0'].cost);
+    // взносы на кухню от двоих
+    getPlayer(s, 'a')!.wallet = 1000;
+    getPlayer(s, 'b')!.wallet = 1000;
+    s = run(s, 'a', { type: 'contributeRoom', room: 'kitchen', amount: 1000 }, t).state;
+    expect(s.home.rooms.kitchen.open).toBe(false);
+    s = run(s, 'b', { type: 'contributeRoom', room: 'kitchen', amount: 1000 }, t).state;
+    expect(s.home.rooms.kitchen.open).toBe(true);
+    expect(getPlayer(s, 'b')!.wallet).toBe(1000 - (CONFIG.kitchenCost - 1000)); // лишнее не списали
+    // личную комнату может обставлять только хозяин
+    s = run(s, 'a', { type: 'debugUnlockRoom' }, t).state;
+    getPlayer(s, 'a')!.wallet = 1000;
+    expect(() => run(s, 'b', { type: 'buyDecor', id: 'bed-0', room: 'bed:a' }, t)).toThrow('not_your_room');
+    expect(() => run(s, 'a', { type: 'buyDecor', id: 'stove-0', room: 'bed:a' }, t)).toThrow('bad_item');
+    s = run(s, 'a', { type: 'buyDecor', id: 'bed-0', room: 'bed:a' }, t).state;
+    // бонус кровати — только хозяину
+    expect(vitalsNow(s, getPlayer(s, 'a')!, t).restPerMin).toBeGreaterThan(vitalsNow(s, getPlayer(s, 'b')!, t).restPerMin);
+  });
+
+  it('зарплата: половина выручки поровну, остальное — в бюджет; перевод в бюджет', () => {
+    let s = join(fresh('barista'));
+    const before = s.money;
+    const r = perfectShift(s, 'a', T0);
+    const sum = r.summary!;
+    expect(sum.salary).toBe(Math.floor((sum.earned * 0.5) / 2));
+    expect(r.state.money - before).toBe(sum.earned - sum.salary * 2);
+    expect(getPlayer(r.state, 'b')!.wallet).toBe(CONFIG.walletStart + sum.salary);
+    s = run(r.state, 'b', { type: 'transferToBudget', amount: 50 }, T0 + 1).state;
+    expect(s.money).toBe(r.state.money + 50);
+    expect(() => run(s, 'b', { type: 'transferToBudget', amount: 99999 }, T0 + 1)).toThrow('no_wallet');
+    expect(() => run(s, 'a', { type: 'supplyRun', items: { catFood: 1 } }, T0 + 1)).toThrow();
+  });
+
+  it('записки и подарки тратят бодрость и радуют получателя', () => {
+    let s = join(fresh('barista'));
+    getPlayer(s, 'b')!.happy = 40;
+    s = run(s, 'a', { type: 'postNote', text: 'Привет!' }, T0).state;
+    expect(getPlayer(s, 'a')!.energy).toBe(100 - CONFIG.noteEnergy);
+    expect(getPlayer(s, 'b')!.happy).toBeCloseTo(40 + CONFIG.joyFromNote, 0);
+    getPlayer(s, 'a')!.wallet = 1000;
+    s = run(s, 'a', { type: 'sendGift', to: 'b', kind: 'gift' }, T0).state;
+    s = run(s, 'a', { type: 'sendGift', to: 'b', kind: 'gift' }, T0).state;
+    // дневной лимит радости
+    expect(getPlayer(s, 'b')!.happy).toBeCloseTo(40 + CONFIG.socialJoyDailyCap, 0);
+    expect(getPlayer(s, 'a')!.wallet).toBe(1000 - 2 * CONFIG.giftCost);
+  });
+
+  it('счастье сдвигает оценку гостей не больше чем на ±18%', () => {
+    expect(happyRatingMult(100)).toBeCloseTo(1.18);
+    expect(happyRatingMult(0)).toBeCloseTo(0.82);
+    expect(happyRatingMult(50)).toBe(1);
   });
 });
 
@@ -363,7 +415,7 @@ describe('с собой', () => {
         if (g.regular) expect(g.takeaway).toBe(false);
       }
       s = run(r.state, 'a', { type: 'abandonShift' }, T0 + k * 10 + 1).state;
-      getPlayer(s, 'a')!.energy = 3;
+      getPlayer(s, 'a')!.energy = 100;
     }
     expect(away).toBeGreaterThan(0);
     expect(away).toBeLessThan(total);
@@ -388,12 +440,12 @@ describe('с собой', () => {
 });
 
 describe('отладка', () => {
-  it('открывает квартиру без выполнения цели', () => {
+  it('открывает кухню и личные комнаты без взносов', () => {
     const s = fresh();
-    expect(s.room.unlocked).toBe(false);
+    expect(s.home.rooms.kitchen.open).toBe(false);
     const r = run(s, 'a', { type: 'debugUnlockRoom' }, T0);
-    expect(r.state.room.unlocked).toBe(true);
-    expect(() => run(r.state, 'a', { type: 'debugUnlockRoom' }, T0 + 1)).toThrow();
+    expect(r.state.home.rooms.kitchen.open).toBe(true);
+    expect(r.state.home.rooms['bed:a'].open).toBe(true);
   });
 });
 
@@ -406,7 +458,7 @@ describe('уровни кофейни', () => {
     expect(s.money).toBe(10000 - 800);
     s = run(s, 'a', { type: 'upgradeSlot', slot: 'machine' }, T0).state;
     expect(s.levels.machine).toBe(3);
-    getPlayer(s, 'a')!.energy = 3;
+    getPlayer(s, 'a')!.energy = 100;
     expect(() => run(s, 'a', { type: 'upgradeSlot', slot: 'machine' }, T0)).toThrow('owned');
   });
 

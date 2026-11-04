@@ -1,4 +1,4 @@
-import type { CafeSlot, DecorSlot, DrinkId, MarketingId, RegularId, Role, StockId, UpgradeId } from './content.ts';
+import type { CafeSlot, DecorSlot, DrinkId, MarketingId, RegularId, Role, RoomKind, StockId, UpgradeId } from './content.ts';
 export type { Role };
 
 export type PlayerId = string;
@@ -10,8 +10,15 @@ export interface Player {
   isNpc: boolean;
   role: Role;
   lastActionAt: number; // последнее действие (не просто визит) — для подмены NPC
+  /** Бодрость 0..100 и счастье 0..100 на момент vitalsAt; дальше восстанавливаются по минутам. */
   energy: number;
-  energyAt: number; // момент, от которого считается восстановление
+  happy: number;
+  vitalsAt: number;
+  /** Личные деньги (зарплата). Бюджет кофейни — CafeState.money. */
+  wallet: number;
+  /** Сколько радости от записок и подарков получено в этот день (лимит в сутки). */
+  socialDay: string;
+  socialJoy: number;
   baristaXp: number;
   managerXp: number;
   joinedAt: number;
@@ -36,6 +43,8 @@ export interface ShiftPlan {
   catInCafe: boolean;
   tables: number;
   tipBonus: number;
+  /** Счастье баристы на начало смены — от него зависят оценки гостей. */
+  happy?: number;
 }
 
 export type GuestOutcome = 'served' | 'wrong' | 'left';
@@ -44,6 +53,17 @@ export interface GuestResult {
   i: number;
   outcome: GuestOutcome;
   waitMs: number; // сколько гость ждал до подачи
+}
+
+export interface HomeRoom {
+  kind: RoomKind;
+  /** Хозяин личной комнаты; у общих — нет. */
+  owner?: PlayerId;
+  open: boolean;
+  /** Сколько уже вложено в открытие. */
+  fund: number;
+  owned: string[];
+  placed: Partial<Record<DecorSlot, string>>;
 }
 
 export interface Application {
@@ -86,6 +106,10 @@ export type LogKind =
   | 'decor_bought'
   | 'decor_placed'
   | 'room_unlocked'
+  | 'room_opened'
+  | 'room_funded'
+  | 'budget_topup'
+  | 'gift_sent'
   | 'cat_adopted'
   | 'cat_fed'
   | 'cat_petted'
@@ -129,11 +153,14 @@ export interface CafeState {
   office: null | { by: PlayerId; until: number };
   applications: Application[];
   marketing: null | { id: MarketingId; guests: number; tipBonus: number; shiftsLeft: number };
-  room: {
+  /** Старое поле одной комнаты — переезжает в home.rooms.hall при миграции. */
+  room?: {
     unlocked: boolean;
     owned: string[];
     placed: Partial<Record<DecorSlot, string>>;
   };
+  /** Квартира: hall, kitchen и bed:<playerId>. */
+  home: { rooms: Record<string, HomeRoom> };
   cat: null | {
     name: string;
     hunger: number; // 100 — сыт
@@ -173,8 +200,12 @@ export type Command =
   | { type: 'upgradeSlot'; slot: CafeSlot }
   | { type: 'unlockDrink'; id: DrinkId }
   | { type: 'toggleFeatured'; id: DrinkId }
-  | { type: 'buyDecor'; id: string }
-  | { type: 'placeDecor'; slot: DecorSlot; id: string | null }
+  | { type: 'buyDecor'; id: string; room?: string }
+  | { type: 'placeDecor'; slot: DecorSlot; id: string | null; room?: string }
+  | { type: 'contributeRoom'; room: string; amount: number }
+  | { type: 'transferToBudget'; amount: number }
+  | { type: 'buyCatFood' }
+  | { type: 'sendGift'; to: PlayerId; kind: 'postcard' | 'gift'; text?: string }
   | { type: 'adoptCat'; name: string }
   | { type: 'feedCat' }
   | { type: 'petCat' }

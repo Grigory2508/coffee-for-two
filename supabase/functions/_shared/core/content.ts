@@ -24,18 +24,67 @@ export type UpgradeId = 'fridge';
 export type CafeSlot = 'machine' | 'vitrine' | 'tables' | 'decor';
 export type Role = 'barista' | 'manager';
 export type MarketingId = 'flyers' | 'blogger';
-export type DecorSlot = 'wall' | 'window' | 'rug' | 'sofa' | 'table' | 'lamp' | 'plant' | 'shelf';
+export type DecorSlot =
+  | 'wall'
+  | 'window'
+  | 'rug'
+  | 'sofa'
+  | 'table'
+  | 'lamp'
+  | 'plant'
+  | 'shelf'
+  | 'stove'
+  | 'fridge'
+  | 'dining'
+  | 'coffeemaker'
+  | 'bed'
+  | 'desk'
+  | 'wardrobe';
+/** Комнаты квартиры: зал и кухня общие, спальня у каждого своя. */
+export type RoomKind = 'hall' | 'kitchen' | 'bedroom';
 export type RegularId = 'mark' | 'vera' | 'tolik';
 
 export const CONFIG = {
   maxPlayers: 2,
-  energyMax: 3,
-  energyRegenMs: 4 * 3600_000,
+  // Бодрость 0..100: тратится на дела, восстанавливается понемногу каждую минуту
+  energyMax: 100,
+  energyRegenPerMin: 0.12, // база: полная шкала примерно за 14 часов
+  shiftEnergy: 30,
+  shiftEnergyMin: 15, // ниже этого кухня цену смены не снизит
+  managerTaskEnergy: 20,
+  noteEnergy: 5,
+  stickerEnergy: 2,
+  postcardEnergy: 8,
+  giftEnergy: 12,
+  // Счастье 0..100: падает от работы, тянется к «потолку уюта», влияет на оценки гостей
+  happyMax: 100,
+  happyStart: 70,
+  happyBaseCap: 70,
+  happyRegenPerMin: 0.05, // +3 в час к потолку
+  happyJoyRatePerPoint: 0.002, // каждый пункт уюта ускоряет восстановление
+  shiftHappyCost: 10,
+  managerHappyCost: 4,
+  happyRatingSpan: 0.18, // счастье 100 → оценки гостей +18%, 0 → −18%
+  // Записки и подарки радуют получателя, но не больше лимита в день
+  joyFromSticker: 1,
+  joyFromNote: 3,
+  joyFromPostcard: 7,
+  joyFromGift: 12,
+  socialJoyDailyCap: 20,
+  petJoy: 5,
+  postcardCost: 30,
+  giftCost: 120,
+  // Деньги: половина выручки — зарплата поровну всем сотрудникам, остальное — бюджет кофейни
+  salaryShare: 0.5,
+  walletStart: 100,
+  catFoodPackCost: 120,
+  catFoodPackAmount: 10,
+  // Квартира: зал открыт сразу, кухня и спальни открываются взносами
+  kitchenCost: 1500,
+  bedroomCost: 800,
   shiftGuests: 5,
   tablesBase: 4,
   terraceTables: 2,
-  // Управляющий: силы тратятся на «рабочие дела»
-  managerTaskCost: 1,
   // NPC подхватывает роль напарника, если тот не действовал столько времени
   npcCoverAfterMs: 24 * 3600_000,
   // …но только пока хоть один живой игрок заходил недавно
@@ -61,9 +110,6 @@ export const CONFIG = {
   fridgeMilkCapacity: 80,
   ratingWindow: 30,
   ratingMinGuests: 5,
-  // Ворота 1 (Акт 1 → комната над кофейней)
-  roomGateStars: 3,
-  roomGateShifts: 8,
   npcShiftEveryMs: 6 * 3600_000,
   npcEfficiency: 0.6,
   catHungerPerHour: 100 / 24,
@@ -140,7 +186,8 @@ export const STOCK_PACKS: Record<StockId, { name: L10n; icon: string; amount: nu
   catFood: { name: { ru: 'Корм для кота', en: 'Cat food' }, icon: '🐟', amount: 10, cost: 120 },
 };
 
-export const STOCK_ORDER: StockId[] = ['beans', 'milk', 'syrup', 'cocoa', 'cups', 'catFood'];
+/** Склад кофейни (закупает управляющий из бюджета). Корм кота покупают из личных денег. */
+export const STOCK_ORDER: StockId[] = ['beans', 'milk', 'syrup', 'cocoa', 'cups'];
 
 export const UPGRADES: Record<UpgradeId, { name: L10n; desc: L10n; cost: number; icon: string }> = {
   fridge: {
@@ -246,10 +293,15 @@ export const UPGRADE_ORDER: UpgradeId[] = ['fridge'];
 export interface DecorItem {
   id: string;
   slot: DecorSlot;
-  variant: number; // 0..2 — влияет на цвет/форму заглушки
+  variant: number; // 0..2 — простой, уютный, дизайнерский
   name: L10n;
   cost: number;
-  comfort: number;
+  /** +бодрости в минуту (мебель для отдыха). */
+  rest: number;
+  /** +пунктов к потолку счастья (декор). */
+  joy: number;
+  /** −бодрости за смену (кухня: кофеварка). */
+  shiftCut: number;
 }
 
 const SLOT_NAMES: Record<DecorSlot, L10n> = {
@@ -257,10 +309,30 @@ const SLOT_NAMES: Record<DecorSlot, L10n> = {
   window: { ru: 'Шторы', en: 'Curtains' },
   rug: { ru: 'Ковёр', en: 'Rug' },
   sofa: { ru: 'Диван', en: 'Sofa' },
-  table: { ru: 'Столик', en: 'Table' },
+  table: { ru: 'Журнальный столик', en: 'Coffee table' },
   lamp: { ru: 'Лампа', en: 'Lamp' },
   plant: { ru: 'Растение', en: 'Plant' },
   shelf: { ru: 'Полка', en: 'Shelf' },
+  stove: { ru: 'Плита', en: 'Stove' },
+  fridge: { ru: 'Холодильник', en: 'Fridge' },
+  dining: { ru: 'Обеденный стол', en: 'Dining table' },
+  coffeemaker: { ru: 'Кофеварка', en: 'Coffee maker' },
+  bed: { ru: 'Кровать', en: 'Bed' },
+  desk: { ru: 'Письменный стол', en: 'Desk' },
+  wardrobe: { ru: 'Шкаф', en: 'Wardrobe' },
+};
+
+/** Какие места есть в каждой комнате (порядок — как в интерфейсе). */
+export const ROOM_SLOTS: Record<RoomKind, DecorSlot[]> = {
+  hall: ['sofa', 'table', 'lamp', 'wall', 'window', 'rug', 'plant', 'shelf'],
+  kitchen: ['stove', 'fridge', 'dining', 'coffeemaker', 'shelf', 'plant', 'window'],
+  bedroom: ['bed', 'desk', 'wardrobe', 'lamp', 'wall', 'rug', 'plant'],
+};
+
+export const ROOMS: Record<RoomKind, { name: L10n; icon: string }> = {
+  hall: { name: { ru: 'Зал', en: 'Living room' }, icon: '🛋️' },
+  kitchen: { name: { ru: 'Кухня', en: 'Kitchen' }, icon: '🍳' },
+  bedroom: { name: { ru: 'Комната', en: 'Room' }, icon: '🛏️' },
 };
 
 export const SLOT_ORDER: DecorSlot[] = ['wall', 'window', 'sofa', 'rug', 'table', 'lamp', 'plant', 'shelf'];
@@ -274,9 +346,20 @@ const VARIANT_NAMES: L10n[] = [
 
 const SLOT_BASE_COST: Record<DecorSlot, number> = {
   wall: 150, window: 120, rug: 180, sofa: 400, table: 200, lamp: 140, plant: 100, shelf: 160,
+  stove: 300, fridge: 350, dining: 250, coffeemaker: 200, bed: 450, desk: 220, wardrobe: 260,
 };
 
-export const DECOR: DecorItem[] = SLOT_ORDER.flatMap((slot) =>
+// Мебель для отдыха ускоряет бодрость (в минуту), декор поднимает потолок счастья
+const SLOT_REST: Partial<Record<DecorSlot, number>> = {
+  bed: 0.05, sofa: 0.02, stove: 0.02, fridge: 0.015, dining: 0.015, coffeemaker: 0.01, desk: 0.01, wardrobe: 0.01, table: 0.01, lamp: 0.008,
+};
+const SLOT_JOY: Partial<Record<DecorSlot, number>> = { wall: 4, window: 3, rug: 4, plant: 3, shelf: 3 };
+const SLOT_SHIFT_CUT: Partial<Record<DecorSlot, number>> = { coffeemaker: 2 };
+const VARIANT_MULT = [1, 1.6, 2.4];
+
+const ALL_SLOTS = Object.keys(SLOT_NAMES) as DecorSlot[];
+
+export const DECOR: DecorItem[] = ALL_SLOTS.flatMap((slot) =>
   [0, 1, 2].map((variant) => ({
     id: `${slot}-${variant}`,
     slot,
@@ -286,7 +369,9 @@ export const DECOR: DecorItem[] = SLOT_ORDER.flatMap((slot) =>
       en: `${VARIANT_NAMES[variant].en[0].toUpperCase()}${VARIANT_NAMES[variant].en.slice(1)} ${SLOT_NAMES[slot].en.toLowerCase()}`,
     },
     cost: Math.round(SLOT_BASE_COST[slot] * [1, 2, 4][variant]),
-    comfort: [1, 2, 3][variant],
+    rest: Math.round((SLOT_REST[slot] ?? 0) * VARIANT_MULT[variant] * 1000) / 1000,
+    joy: Math.round((SLOT_JOY[slot] ?? 0) * VARIANT_MULT[variant]),
+    shiftCut: (SLOT_SHIFT_CUT[slot] ?? 0) * (variant + 1),
   })),
 );
 
