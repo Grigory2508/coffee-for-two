@@ -941,6 +941,13 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       s.money += 1000;
       break;
     }
+    case 'debugUnlockRoom': {
+      // Отладка: открыть квартиру над кофейней, не выполняя цель (3★ и 8 смен)
+      if (s.room.unlocked) throw new GameError('owned');
+      s.room.unlocked = true;
+      addLog(s, at, 'system', 'room_unlocked');
+      break;
+    }
     default: {
       const never: never = cmd;
       throw new GameError('bad_command', { type: String((never as Command).type) });

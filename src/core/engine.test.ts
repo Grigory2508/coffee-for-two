@@ -385,3 +385,13 @@ describe('с собой', () => {
     expect(d2.summary!.noStock).toBe(1);
   });
 });
+
+describe('отладка', () => {
+  it('открывает квартиру без выполнения цели', () => {
+    const s = fresh();
+    expect(s.room.unlocked).toBe(false);
+    const r = run(s, 'a', { type: 'debugUnlockRoom' }, T0);
+    expect(r.state.room.unlocked).toBe(true);
+    expect(() => run(r.state, 'a', { type: 'debugUnlockRoom' }, T0 + 1)).toThrow();
+  });
+});

@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
         const cmd = body.cmd as Command;
         if (!cmd || typeof cmd !== 'object' || typeof cmd.type !== 'string') return fail('bad_command');
         if (cmd.type === 'join') return fail('bad_command');
-        if (cmd.type === 'debugRefill' && !ALLOW_DEBUG) return fail('forbidden', {}, 403);
+        if (cmd.type.startsWith('debug') && !ALLOW_DEBUG) return fail('forbidden', {}, 403);
         const m = await getMember(user.id);
         if (!m) return fail('no_cafe');
         const before = await getCafe(m.code);

@@ -616,6 +616,11 @@ function DebugPanel({ onReset }: { onReset: () => void }) {
         <button class="chip" onClick={() => send({ type: 'debugRefill' })}>
           {t('debugRefill')}
         </button>
+        {!state.room.unlocked && (
+          <button class="chip" onClick={() => send({ type: 'debugUnlockRoom' })}>
+            {t('debugUnlockRoom')}
+          </button>
+        )}
         {backend.mode === 'local' && (
           <a class="chip" href={partnerUrl} target="_blank" rel="noopener">
             {t('debugPartner')}

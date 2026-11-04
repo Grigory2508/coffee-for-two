@@ -177,7 +177,8 @@ export type Command =
   | { type: 'petCat' }
   | { type: 'postNote'; text: string; sticker?: string }
   | { type: 'seen' }
-  | { type: 'debugRefill' };
+  | { type: 'debugRefill' }
+  | { type: 'debugUnlockRoom' };
 
 export interface CommandEnvelope {
   actor: PlayerId;
