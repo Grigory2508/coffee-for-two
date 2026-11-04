@@ -59,8 +59,8 @@ async function finishShift(page, label) {
         const away = await card.locator('.to-go.away').count();
         await page.locator('.vessel', { hasText: away ? /Стакан/ : /Чашка/ }).click({ timeout: 300 }).catch(() => {});
       } else {
-        const todo = await card.locator('.ri:not(.done)').allInnerTexts().catch(() => []);
-        if (todo.length) await page.locator('.station', { hasText: ICON_TO_STATION[todo[0].trim()] }).first().click({ timeout: 300 }).catch(() => {});
+        const src = await card.locator('.ri:not(.done) img').first().getAttribute('src', { timeout: 300 }).catch(() => null);
+        if (src) await page.locator(`.station:has(img[src="${src}"])`).first().click({ timeout: 300 }).catch(() => {});
       }
       
     }

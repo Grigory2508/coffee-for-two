@@ -9,7 +9,7 @@ import { now as clockNow, resetTime, skipTime, timeOffset } from '../platform/cl
 import { config } from '../platform/config';
 import { getIdentity } from '../platform/identity';
 import { tg } from '../platform/telegram';
-import { CafeScene } from './art';
+import { CafeArt } from './icons';
 import { describeLog, GameCtx, timeAgo, useGame, type Game } from './game';
 import { CafeInfoTab, CounterTab, Header, OfficeTab, RoomTab, ShiftResult, TeamTab, teamBadge } from './screens';
 import { digestFor, energyNow, getPlayer } from '../core/engine';
@@ -409,7 +409,7 @@ function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role)
   const [role, setRole] = useState<Role>('barista');
   return (
     <div class="app onboarding">
-      <CafeScene cat={false} busy={true} />
+      <CafeArt />
       <div class="onb-body">
         <h1>{t('welcomeTitle')}</h1>
         <p class="muted">{t('welcomeText')}</p>
@@ -444,7 +444,7 @@ function Invite({ peek, onApply, onOwn, toastText }: { peek: CafePeek | null; on
   const [busy, setBusy] = useState(false);
   return (
     <div class="app onboarding">
-      <CafeScene cat={false} busy={true} />
+      <CafeArt />
       <div class="onb-body">
         <h1>💌 {t('inviteTitle')}</h1>
         {ok && <p>{t('inviteText', { name: peek.owner, cafe: peek.name })}</p>}
@@ -506,7 +506,7 @@ function Pending({ peek, onCancel, onOwn, toastText }: { peek: CafePeek | null; 
   const app = peek?.application;
   return (
     <div class="app onboarding">
-      <CafeScene cat={true} busy={false} />
+      <CafeArt />
       <div class="onb-body">
         <h1>⏳ {t('pendingTitle')}</h1>
         {app && peek ? (

@@ -6,6 +6,7 @@ import { L, t } from '../i18n';
 import { now as clockNow } from '../platform/clock';
 import { tg } from '../platform/telegram';
 import { CupSection } from './cup';
+import { CompIcon } from './icons';
 import { useGame } from './game';
 
 // Смена: 75 секунд, только тапы. У стойки один гость; следующий подходит, когда этого обслужили
@@ -313,7 +314,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
                     {recipe.map((c) => {
                       const k = have.indexOf(c);
                       if (k >= 0) have.splice(k, 1);
-                      return <span class={`ri ${k >= 0 ? 'done' : ''}`}>{COMPONENTS[c].icon}</span>;
+                      return <span class={`ri ${k >= 0 ? 'done' : ''}`}><CompIcon c={c} size={30} /></span>;
                     })}
                   </div>
                   <span class={`to-go ${guest.takeaway ? 'away' : 'here'}`}>{guest.takeaway ? t('takeaway') : t('dineIn')}</span>
@@ -410,7 +411,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
                   const avail = st ? stockLeft(st) : Infinity;
                   return (
                     <button class={`station ${COMPONENTS[c].brewMs ? 'timed' : ''} ${needs(c) ? 'wanted' : ''} ${bounce === c ? 'bounce' : ''}`} disabled={avail <= 0} onClick={() => add(c)}>
-                      <span class="station-icon">{COMPONENTS[c].icon}</span>
+                      <span class="station-icon"><CompIcon c={c} size={34} /></span>
                       <span class="station-name">{L(COMPONENTS[c].name)}</span>
                       {COMPONENTS[c].brewMs && <span class="station-time">{t('sec', { n: (COMPONENTS[c].brewMs! / 1000).toFixed(1) })}</span>}
                       {st && avail <= 5 && <span class="station-stock">{avail > 0 ? avail : t('outOf')}</span>}

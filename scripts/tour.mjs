@@ -49,8 +49,8 @@ async function playShift(page, label, shots = true) {
         const away = await card.locator('.to-go.away').count();
         await page.locator('.vessel', { hasText: away ? /Стакан/ : /Чашка/ }).click({ timeout: 300 }).catch(() => {});
       } else {
-        const todo = await card.locator('.ri:not(.done)').allInnerTexts().catch(() => []);
-        if (todo.length) await page.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click({ timeout: 300 }).catch(() => {});
+        const src = await card.locator('.ri:not(.done) img').first().getAttribute('src', { timeout: 300 }).catch(() => null);
+        if (src) await page.locator(`.station:has(img[src="${src}"])`).first().click({ timeout: 300 }).catch(() => {});
       }
       if (shots && n === 0 && tick === 14) await shot(page, `${label}-building`);
     }
@@ -92,8 +92,8 @@ await a.waitForTimeout(6000);
   const away = await card.locator('.to-go.away').count();
   await a.locator('.vessel', { hasText: away ? /Стакан/ : /Чашка/ }).click();
   for (let k = 0; k < 2; k++) {
-    const todo = await card.locator('.ri:not(.done)').allInnerTexts();
-    if (todo.length) await a.locator('.station', { hasText: ICON[todo[0].trim()] }).first().click();
+    const src = await card.locator('.ri:not(.done) img').first().getAttribute('src');
+    if (src) await a.locator(`.station:has(img[src="${src}"])`).first().click();
   }
   await a.waitForTimeout(700);
 }

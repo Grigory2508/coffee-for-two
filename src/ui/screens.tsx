@@ -4,7 +4,6 @@ import {
   DECOR,
   DRINKS,
   DRINK_ORDER,
-  COMPONENTS,
   REGULARS,
   REGULAR_ORDER,
   SLOT_LABEL,
@@ -29,8 +28,9 @@ import { fmtDuration, L, t } from '../i18n';
 import { inviteLink } from '../net/backend';
 import { track } from '../platform/analytics';
 import { tg } from '../platform/telegram';
-import { CafeScene, CatPortrait, DecorIcon, RoomScene } from './art';
+import { CatPortrait, DecorIcon, RoomScene } from './art';
 import { CupSection } from './cup';
+import { Bolt, CafeArt, Coin, CompIcon, StockIcon } from './icons';
 import { describeLog, playerName, roleName, timeAgo, useGame } from './game';
 
 // ---------- общие куски ----------
@@ -59,15 +59,15 @@ export function Header({ onRating, onAlert, extra }: { onRating?: () => void; on
       <div class="hud-stats">
         {low.length > 0 && (
           <button class="hud-chip warn" onClick={onAlert} aria-label={t('stockAlert', { items: '' })}>
-            ⚠ {low.map((k) => STOCK_PACKS[k].icon).join('')}
+            ⚠ {low.map((k) => <StockIcon k={k} size={18} />)}
           </button>
         )}
         <span class="hud-chip">
-          🪙 <b>{state.money}</b>
+          <Coin /> <b>{state.money}</b>
         </span>
         {e && (
           <span class="hud-chip energy-chip" title={t('energy')}>
-            ⚡ <b>{e.energy}/{CONFIG.energyMax}</b>
+            <Bolt /> <b>{e.energy}/{CONFIG.energyMax}</b>
             {e.nextAt ? <small>{fmtDuration(e.nextAt - now)}</small> : null}
           </span>
         )}
@@ -280,7 +280,7 @@ function MenuToday({ compact }: { compact?: boolean }) {
             <div class={`menu-cell ${ok ? '' : 'short'}`}>
               <div class="menu-name">{L(d.name)}</div>
               <CupSection recipe={d.recipe} size={compact ? 40 : 52} />
-              <div class="menu-recipe">{d.recipe.map((c) => COMPONENTS[c].icon).join('')}</div>
+              <div class="menu-recipe">{d.recipe.map((c) => <CompIcon c={c} size={18} />)}</div>
               <div class="menu-price">{ok ? `${d.price} 🪙` : t('cantMake')}</div>
             </div>
           );
@@ -301,7 +301,7 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
   return (
     <div class="tab">
       <div class="card hero">
-        <CafeScene cat={catHere} busy={!!counter || active} />
+        <CafeArt />
         <div class="hero-body">
           <div class="hero-title">{t('shiftTitle')}</div>
           <div class="muted small">{t('shiftLength', { n: guestsPerShift(state) })}</div>
@@ -328,7 +328,7 @@ export function CafeInfoTab() {
   const shown = rows.filter((_, i) => i < 3 || Math.abs(i - youAt) <= 1);
   return (
     <div class="tab">
-      <CafeScene cat={catInCafe(state)} busy={Object.keys(state.activeShifts).length > 0} />
+      <CafeArt />
 
       {!state.room.unlocked && (
         <div class="card">
@@ -380,7 +380,7 @@ export function CafeInfoTab() {
         <div class="stock-mini">
           {STOCK_ORDER.map((k) => (
             <span class={lowStock(state).includes(k) ? 'warn' : ''}>
-              {STOCK_PACKS[k].icon} {state.stock[k]}
+              <StockIcon k={k} size={20} /> {state.stock[k]}
             </span>
           ))}
         </div>
@@ -609,7 +609,7 @@ function StockSeg() {
             k === 'catFood' ? t('forHome') : left === Infinity ? t('notUsedToday') : left < 1 ? t('enoughForNone') : t('enoughFor', { n: Math.floor(left) });
           return (
             <div class="stock-row">
-              <span class="icon">{pack.icon}</span>
+              <span class="icon"><StockIcon k={k} size={36} /></span>
               <div class="grow">
                 <div class="row">
                   <b class="grow">{L(pack.name)}</b>
@@ -679,7 +679,7 @@ function MenuSeg() {
             <div class={`row item drink-row ${has ? '' : 'locked-row'}`}>
               <div class="grow">
                 <b>{L(d.name)}</b> <span class="muted small num">· {d.price} 🪙</span>
-                <div class="recipe">{d.recipe.map((c) => COMPONENTS[c].icon).join(' ')}</div>
+                <div class="recipe">{d.recipe.map((c) => <CompIcon c={c} size={20} />)}</div>
               </div>
               {has ? (
                 <button class={`chip ${today ? 'on' : ''}`} onClick={() => send({ type: 'toggleFeatured', id })}>
