@@ -177,7 +177,7 @@ describe('силы', () => {
     expect(s.stock.syrup).toBe(10);
     s = run(s, 'a', { type: 'unlockDrink', id: 'latte' }, T0).state;
     expect(getPlayer(s, 'a')!.energy).toBe(2);
-    s = run(s, 'a', { type: 'buyUpgrade', id: 'terrace' }, T0).state;
+    s = run(s, 'a', { type: 'upgradeSlot', slot: 'tables' }, T0).state;
     s = run(s, 'a', { type: 'launchMarketing', id: 'flyers' }, T0).state;
     expect(getPlayer(s, 'a')!.energy).toBe(0);
     expect(() => run(s, 'a', { type: 'supplyRun', items: { milk: 1 } }, T0)).toThrow('no_energy');
@@ -212,11 +212,12 @@ describe('смена', () => {
   it('веранда и реклама добавляют гостей; реклама кончается через 3 смены', () => {
     let s = join(fresh('barista'));
     s = { ...run(s, 'b', { type: 'debugRefill' }, T0).state, money: 5000 };
-    s = run(s, 'b', { type: 'buyUpgrade', id: 'terrace' }, T0).state;
+    s = run(s, 'b', { type: 'upgradeSlot', slot: 'tables' }, T0).state;
+    s = run(s, 'b', { type: 'upgradeSlot', slot: 'tables' }, T0).state;
     s = run(s, 'b', { type: 'launchMarketing', id: 'flyers' }, T0).state;
     const r = run(s, 'a', { type: 'startShift' }, T0);
     expect(r.shiftPlan!.guests).toHaveLength(CONFIG.shiftGuests + 2);
-    expect(r.shiftPlan!.tables).toBe(CONFIG.tablesBase + CONFIG.terraceTables);
+    expect(r.shiftPlan!.tables).toBe(CONFIG.tablesBase + 2);
     expect(r.state.marketing!.shiftsLeft).toBe(2);
   });
 
@@ -393,5 +394,39 @@ describe('отладка', () => {
     const r = run(s, 'a', { type: 'debugUnlockRoom' }, T0);
     expect(r.state.room.unlocked).toBe(true);
     expect(() => run(r.state, 'a', { type: 'debugUnlockRoom' }, T0 + 1)).toThrow();
+  });
+});
+
+describe('уровни кофейни', () => {
+  it('улучшаются по порядку до 3-го уровня, по 1⚡ и за деньги', () => {
+    let s: CafeState = { ...fresh('manager'), money: 10000 };
+    expect(s.levels.machine).toBe(1);
+    s = run(s, 'a', { type: 'upgradeSlot', slot: 'machine' }, T0).state;
+    expect(s.levels.machine).toBe(2);
+    expect(s.money).toBe(10000 - 800);
+    s = run(s, 'a', { type: 'upgradeSlot', slot: 'machine' }, T0).state;
+    expect(s.levels.machine).toBe(3);
+    getPlayer(s, 'a')!.energy = 3;
+    expect(() => run(s, 'a', { type: 'upgradeSlot', slot: 'machine' }, T0)).toThrow('owned');
+  });
+
+  it('витрина приносит выпечку с гостей, которые пьют здесь', () => {
+    let s = fresh();
+    s.levels.vitrine = 3;
+    const r = run(s, 'a', { type: 'startShift' }, T0);
+    const here = r.shiftPlan!.guests.filter((g) => !g.takeaway).length;
+    const results = r.shiftPlan!.guests.map((_, i) => ({ i, outcome: 'served' as const, waitMs: 1000 }));
+    const done = run(r.state, 'a', { type: 'finishShift', results, cleanliness: 1 }, T0 + 60_000);
+    expect(done.summary!.pastry).toBe(here * 25);
+  });
+
+  it('старые улучшения переезжают в уровни', () => {
+    const s = fresh();
+    delete (s as Partial<CafeState>).levels;
+    (s.upgrades as Record<string, boolean>).machinePro = true;
+    (s.upgrades as Record<string, boolean>).terrace = true;
+    const m = migrate(s);
+    expect(m.levels).toEqual({ machine: 2, vitrine: 1, tables: 3, decor: 1 });
+    expect((m.upgrades as Record<string, boolean>).machinePro).toBeUndefined();
   });
 });

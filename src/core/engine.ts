@@ -11,6 +11,9 @@ import {
   START_MENU,
   STOCK_PACKS,
   UPGRADES,
+  CAFE_SLOTS,
+  SLOT_MAX,
+  type CafeSlot,
   otherRole,
   type DrinkId,
   type RegularId,
@@ -190,12 +193,35 @@ export function packPrice(s: CafeState, actor: PlayerId, item: StockId): number 
   return Math.round(STOCK_PACKS[item].cost * (1 - discount));
 }
 
+/** Уровень слота кофейни (1..3). */
+export function slotLevel(s: CafeState, slot: CafeSlot): number {
+  return Math.min(SLOT_MAX, Math.max(1, s.levels?.[slot] ?? 1));
+}
+
+/** Что дают уровни кофейни — одно место для баланса (клиент и сервер). */
+export function slotEffects(s: CafeState) {
+  const m = slotLevel(s, 'machine');
+  const v = slotLevel(s, 'vitrine');
+  const tb = slotLevel(s, 'tables');
+  const d = slotLevel(s, 'decor');
+  return {
+    machineHeads: m >= 2 ? 2 : 1,
+    shotSpeed: m >= 3 ? 2 : 1, // во сколько раз быстрее варится эспрессо
+    tipMult: [1, 1.15, 1.25][m - 1],
+    pastry: [0, 12, 25][v - 1], // монет с гостя, который пьёт здесь
+    tables: CONFIG.tablesBase + (tb - 1), // 4, 5, 6
+    extraGuests: tb >= 3 ? 1 : 0,
+    satBonus: [0, 0.05, 0.1][tb - 1] + [0, 0, 0.05][d - 1],
+    patienceMs: [0, 3000, 6000][d - 1],
+  };
+}
+
 export function tablesCount(s: CafeState): number {
-  return CONFIG.tablesBase + (s.upgrades.terrace ? CONFIG.terraceTables : 0);
+  return slotEffects(s).tables;
 }
 
 export function guestsPerShift(s: CafeState): number {
-  return CONFIG.shiftGuests + (s.upgrades.terrace ? 1 : 0) + (s.marketing?.guests ?? 0);
+  return CONFIG.shiftGuests + slotEffects(s).extraGuests + (s.marketing?.guests ?? 0);
 }
 
 export function recipeUsage(drink: DrinkId): Partial<Record<StockId, number>> {
@@ -287,6 +313,7 @@ export function createCafe(opts: {
     menu: [...START_MENU],
     featured: [...START_MENU],
     upgrades: {},
+    levels: { machine: 1, vitrine: 1, tables: 1, decor: 1 },
     ratingRecent: [],
     regulars: {},
     activeShifts: {},
@@ -434,7 +461,7 @@ export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): Shift
   const rnd = mulberry32(seed);
   const n = guestsPerShift(s);
   const span = CONFIG.shiftDurationMs - 25_000;
-  const patience = CONFIG.basePatienceMs + (s.upgrades.cozyHall ? 3000 : 0);
+  const patience = CONFIG.basePatienceMs + slotEffects(s).patienceMs;
   const guests: ShiftGuest[] = [];
   for (let i = 0; i < n; i++) {
     guests.push({
@@ -468,11 +495,13 @@ export interface ShiftSummary {
   beats: { regular: RegularId; beat: number }[];
   noStock: number;
   cleanliness: number;
+  /** Выручка витрины: выпечка гостей, которые пьют здесь. */
+  pastry: number;
 }
 
 export function tipFor(s: CafeState, p: Player, drink: DrinkId, waitMs: number, patienceMs: number, cat: boolean, tipBonus = 0): number {
   const speed = Math.max(0, 1 - waitMs / patienceMs);
-  const mult = (1 + 0.05 * level(p.baristaXp)) * (s.upgrades.machinePro ? 1.15 : 1) * (cat ? 1.1 : 1) * (1 + tipBonus);
+  const mult = (1 + 0.05 * level(p.baristaXp)) * slotEffects(s).tipMult * (cat ? 1.1 : 1) * (1 + tipBonus);
   return Math.round(DRINKS[drink].price * 0.25 * speed * mult);
 }
 
@@ -487,7 +516,7 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
   // Командный бонус: в этот день работали хотя бы двое
   const activeToday = humans(s).filter((h) => h.id === actor || h.days.includes(today)).length;
   const coop = activeToday >= 2 ? 1.2 : 1;
-  const sum: ShiftSummary = { earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0, cleanliness };
+  const sum: ShiftSummary = { earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0, cleanliness, pastry: 0 };
 
   plan.guests.forEach((g, i) => {
     const r = byIdx.get(i);
@@ -505,7 +534,11 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
       sum.tips += tip;
       sum.served += 1;
       p.baristaXp += 10;
-      sat = Math.min(1, 1 - 0.5 * (wait / g.patienceMs) + (s.upgrades.cozyHall ? 0.05 : 0));
+      sat = Math.min(1, 1 - 0.5 * (wait / g.patienceMs) + slotEffects(s).satBonus);
+      if (!g.takeaway && slotEffects(s).pastry) {
+        sum.pastry += slotEffects(s).pastry;
+        sum.earned += slotEffects(s).pastry;
+      }
       if (g.regular) {
         const reg = (s.regulars[g.regular] ??= { visits: 0, seenBy: [] });
         if (reg.visits < REGULARS[g.regular].beats.length) {
@@ -607,7 +640,7 @@ function holdOffice(s: CafeState, actor: PlayerId, at: number) {
   s.office = { by: actor, until: at + CONFIG.officeHoldMs };
 }
 
-const MANAGER_COMMANDS = new Set(['supplyRun', 'unlockDrink', 'toggleFeatured', 'buyUpgrade', 'launchMarketing']);
+const MANAGER_COMMANDS = new Set(['supplyRun', 'unlockDrink', 'toggleFeatured', 'buyUpgrade', 'upgradeSlot', 'launchMarketing']);
 const BARISTA_COMMANDS = new Set(['startShift', 'finishShift', 'abandonShift']);
 
 export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
@@ -731,6 +764,21 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       p.managerXp += 25;
       markDay(p, at);
       addLog(s, at, actor, 'upgrade_bought', { id: cmd.id });
+      break;
+    }
+    case 'upgradeSlot': {
+      const slot = CAFE_SLOTS[cmd.slot];
+      if (!slot) throw new GameError('bad_item');
+      const cur = slotLevel(s, cmd.slot);
+      if (cur >= SLOT_MAX) throw new GameError('owned');
+      const cost = slot.levels[cur].cost;
+      requireMoney(s, cost);
+      spendEnergy(p, at, CONFIG.managerTaskCost);
+      s.money -= cost;
+      s.levels[cmd.slot] = cur + 1;
+      p.managerXp += 25;
+      markDay(p, at);
+      addLog(s, at, actor, 'upgrade_bought', { slot: cmd.slot, level: cur + 1 });
       break;
     }
     case 'launchMarketing': {
@@ -985,6 +1033,14 @@ export function migrate(s: CafeState): CafeState {
   if (!Array.isArray((x as Partial<CafeState>).applications)) x.applications = [];
   if (x.marketing === undefined) x.marketing = null;
   if (x.stock.cups === undefined) x.stock.cups = CONFIG.startStock.cups;
+  // Старые улучшения → уровни кофейни
+  if (!x.levels) {
+    const old = x.upgrades as Record<string, boolean | undefined>;
+    x.levels = { machine: old.machinePro ? 2 : 1, vitrine: 1, tables: old.terrace ? 3 : 1, decor: old.cozyHall ? 2 : 1 };
+    delete old.machinePro;
+    delete old.terrace;
+    delete old.cozyHall;
+  }
   if (!Array.isArray((x as Partial<CafeState>).featured)) x.featured = x.menu.slice(0, CONFIG.menuSlots);
   x.players.forEach((p, i) => {
     if (!p.role) p.role = i === 0 ? 'barista' : 'manager';

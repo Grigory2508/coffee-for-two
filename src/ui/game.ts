@@ -1,6 +1,6 @@
 import { createContext } from 'preact';
 import { useContext } from 'preact/hooks';
-import { DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, STOCK_PACKS, UPGRADES, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type UpgradeId } from '../core/content';
+import { CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, STOCK_PACKS, UPGRADES, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type UpgradeId, type CafeSlot } from '../core/content';
 import type { ApplyResult } from '../core/engine';
 import type { CafeState, Command, LogEntry } from '../core/types';
 import { L, t } from '../i18n';
@@ -35,6 +35,11 @@ export function playerName(s: CafeState, id: string): string {
 function itemName(kind: string, id: string): string {
   if (kind === 'stock_bought') return L(STOCK_PACKS[id as StockId]?.name ?? { ru: id, en: id });
   if (kind === 'upgrade_bought') return L(UPGRADES[id as UpgradeId]?.name ?? { ru: id, en: id });
+  if (kind === 'slot_upgraded') {
+    const [slot, lvl] = id.split(':');
+    const sl = CAFE_SLOTS[slot as CafeSlot];
+    return sl ? `${L(sl.name)}: ${L(sl.levels[Number(lvl) - 1]?.name ?? sl.name)}` : id;
+  }
   if (kind === 'drink_unlocked') return L(DRINKS[id as DrinkId]?.name ?? { ru: id, en: id });
   if (kind === 'decor_bought' || kind === 'decor_placed') return L(DECOR_BY_ID[id]?.name ?? { ru: id, en: id });
   if (kind === 'marketing_launched') return L(MARKETING[id as MarketingId]?.name ?? { ru: id, en: id });
@@ -44,11 +49,12 @@ function itemName(kind: string, id: string): string {
 
 export function describeLog(s: CafeState, e: LogEntry): string {
   const p = e.p ?? {};
-  const id = String(p.item ?? p.id ?? p.regular ?? '');
+  const id = p.slot ? `${p.slot}:${p.level}` : String(p.item ?? p.id ?? p.regular ?? '');
+  const kind = p.slot ? 'slot_upgraded' : e.kind;
   return t(`log_${e.kind}`, {
     ...p,
     who: playerName(s, String(e.actor)),
-    item: itemName(e.kind, id),
+    item: itemName(kind, id),
     sticker: String(p.sticker ?? ''),
     text: String(p.text ?? ''),
     role: p.role ? roleName(String(p.role) as Role).toLowerCase() : '',

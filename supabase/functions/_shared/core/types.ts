@@ -1,4 +1,4 @@
-import type { DecorSlot, DrinkId, MarketingId, RegularId, Role, StockId, UpgradeId } from './content.ts';
+import type { CafeSlot, DecorSlot, DrinkId, MarketingId, RegularId, Role, StockId, UpgradeId } from './content.ts';
 export type { Role };
 
 export type PlayerId = string;
@@ -120,6 +120,8 @@ export interface CafeState {
   /** Меню дня: что заказывают гости (подмножество menu, до CONFIG.menuSlots). */
   featured: DrinkId[];
   upgrades: Partial<Record<UpgradeId, true>>;
+  /** Уровни кофейни 1..3: машина, витрина, столики, декор. */
+  levels: Record<CafeSlot, number>;
   ratingRecent: number[]; // удовлетворённость 0..1 последних гостей
   regulars: Partial<Record<RegularId, { visits: number; seenBy: PlayerId[] }>>;
   activeShifts: Record<PlayerId, ShiftPlan>;
@@ -168,6 +170,7 @@ export type Command =
   | { type: 'declineSwap' }
   | { type: 'leaveCafe' }
   | { type: 'buyUpgrade'; id: UpgradeId }
+  | { type: 'upgradeSlot'; slot: CafeSlot }
   | { type: 'unlockDrink'; id: DrinkId }
   | { type: 'toggleFeatured'; id: DrinkId }
   | { type: 'buyDecor'; id: string }

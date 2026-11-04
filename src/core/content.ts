@@ -18,7 +18,10 @@ export type DrinkId =
   | 'mocha';
 /** Станция за стойкой: кофемашина, молочная станция, полка добавок. */
 export type StationId = 'machine' | 'milk' | 'extras';
-export type UpgradeId = 'machinePro' | 'fridge' | 'cozyHall' | 'terrace';
+/** Отдельные улучшения без уровней (старые machinePro/cozyHall/terrace переехали в уровни кофейни). */
+export type UpgradeId = 'fridge';
+/** Слоты кофейни, которые растут по уровням и видны на иллюстрации. */
+export type CafeSlot = 'machine' | 'vitrine' | 'tables' | 'decor';
 export type Role = 'barista' | 'manager';
 export type MarketingId = 'flyers' | 'blogger';
 export type DecorSlot = 'wall' | 'window' | 'rug' | 'sofa' | 'table' | 'lamp' | 'plant' | 'shelf';
@@ -140,31 +143,65 @@ export const STOCK_PACKS: Record<StockId, { name: L10n; icon: string; amount: nu
 export const STOCK_ORDER: StockId[] = ['beans', 'milk', 'syrup', 'cocoa', 'cups', 'catFood'];
 
 export const UPGRADES: Record<UpgradeId, { name: L10n; desc: L10n; cost: number; icon: string }> = {
-  machinePro: {
-    name: { ru: 'Кофемашина Pro', en: 'Pro espresso machine' },
-    desc: { ru: '+15% чаевых и второй рожок: два эспрессо одновременно', en: '+15% tips and a second group head: two shots at once' },
-    cost: 800,
-    icon: '⚙️',
-  },
   fridge: {
     name: { ru: 'Второй холодильник', en: 'Second fridge' },
     desc: { ru: 'Молока помещается 80 вместо 40', en: 'Milk capacity 80 instead of 40' },
     cost: 600,
     icon: '🧊',
   },
-  cozyHall: {
-    name: { ru: 'Уютный зал', en: 'Cozy hall' },
-    desc: { ru: 'Гости ждут на 3 секунды дольше и довольнее', en: 'Guests wait 3s longer and are happier' },
-    cost: 1000,
-    icon: '🛋️',
+};
+
+export interface SlotLevel {
+  name: L10n;
+  desc: L10n;
+  cost: number; // цена перехода на этот уровень (у первого — 0)
+}
+
+/**
+ * Уровни кофейни: 1 — с самого начала, 2 и 3 покупает управляющий (по 1⚡).
+ * Каждый уровень меняет картинку кофейни (или столики на смене) и даёт эффект — см. slotEffects в engine.
+ */
+export const CAFE_SLOTS: Record<CafeSlot, { name: L10n; icon: string; levels: SlotLevel[] }> = {
+  machine: {
+    name: { ru: 'Кофемашина', en: 'Espresso machine' },
+    icon: '☕',
+    levels: [
+      { name: { ru: 'Домашняя', en: 'Home machine' }, desc: { ru: 'Один рожок', en: 'One group head' }, cost: 0 },
+      { name: { ru: 'Двухрожковая', en: 'Two-group' }, desc: { ru: 'Два эспрессо одновременно, +15% чаевых', en: 'Two shots at once, +15% tips' }, cost: 800 },
+      { name: { ru: 'Профессиональная', en: 'Professional' }, desc: { ru: 'Два рожка, эспрессо вдвое быстрее, +25% чаевых', en: 'Two heads, shots twice as fast, +25% tips' }, cost: 1800 },
+    ],
   },
-  terrace: {
-    name: { ru: 'Летняя веранда', en: 'Summer terrace' },
-    desc: { ru: 'Расширение: +2 столика и +1 гость за смену', en: 'Expansion: +2 tables and +1 guest per shift' },
-    cost: 1500,
-    icon: '⛱️',
+  vitrine: {
+    name: { ru: 'Витрина', en: 'Pastry display' },
+    icon: '🥐',
+    levels: [
+      { name: { ru: 'Подставка для торта', en: 'Cake stand' }, desc: { ru: 'Выпечки почти нет', en: 'Hardly any pastry' }, cost: 0 },
+      { name: { ru: 'Витрина с выпечкой', en: 'Pastry case' }, desc: { ru: 'Гость за столиком берёт выпечку: +12 🪙', en: 'Dine-in guests buy pastry: +12 🪙' }, cost: 600 },
+      { name: { ru: 'Большая витрина', en: 'Large display' }, desc: { ru: 'Гость за столиком берёт выпечку: +25 🪙', en: 'Dine-in guests buy pastry: +25 🪙' }, cost: 1400 },
+    ],
+  },
+  tables: {
+    name: { ru: 'Столики', en: 'Tables' },
+    icon: '🪑',
+    levels: [
+      { name: { ru: 'Простые столики', en: 'Simple tables' }, desc: { ru: '4 столика', en: '4 tables' }, cost: 0 },
+      { name: { ru: 'Уютные столики', en: 'Cozy tables' }, desc: { ru: '5 столиков, гости довольнее (+5%)', en: '5 tables, happier guests (+5%)' }, cost: 700 },
+      { name: { ru: 'Веранда', en: 'Terrace' }, desc: { ru: '6 столиков, +1 гость за смену, гости довольнее (+10%)', en: '6 tables, +1 guest per shift, happier guests (+10%)' }, cost: 1500 },
+    ],
+  },
+  decor: {
+    name: { ru: 'Декор зала', en: 'Hall decor' },
+    icon: '🪴',
+    levels: [
+      { name: { ru: 'Голые стены', en: 'Bare walls' }, desc: { ru: 'Пока пусто', en: 'Empty for now' }, cost: 0 },
+      { name: { ru: 'Растения и лампы', en: 'Plants and lamps' }, desc: { ru: 'Гости ждут на 3 с дольше', en: 'Guests wait 3s longer' }, cost: 1000 },
+      { name: { ru: 'Уютный зал', en: 'Cozy hall' }, desc: { ru: 'Гости ждут на 6 с дольше и довольнее (+5%)', en: 'Guests wait 6s longer and are happier (+5%)' }, cost: 2000 },
+    ],
   },
 };
+
+export const CAFE_SLOT_ORDER: CafeSlot[] = ['machine', 'vitrine', 'tables', 'decor'];
+export const SLOT_MAX = 3;
 
 export const ROLES: Record<Role, { name: L10n; icon: string; desc: L10n }> = {
   barista: {
@@ -204,7 +241,7 @@ export const MARKETING: Record<MarketingId, { name: L10n; desc: L10n; cost: numb
 
 export const MARKETING_ORDER: MarketingId[] = ['flyers', 'blogger'];
 
-export const UPGRADE_ORDER: UpgradeId[] = ['fridge', 'machinePro', 'cozyHall', 'terrace'];
+export const UPGRADE_ORDER: UpgradeId[] = ['fridge'];
 
 export interface DecorItem {
   id: string;

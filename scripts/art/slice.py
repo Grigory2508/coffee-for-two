@@ -1,6 +1,8 @@
 """Нарезка листа иконок из Gemini: сетка → фон в прозрачность → обрезка → WebP.
 
-python3 scripts/art/slice.py <лист> <cols> <rows> <out_dir> <имя1,имя2,...> [size]
+python3 scripts/art/slice.py <лист> <cols> <rows> <out_dir> <имя1,имя2,...> [size] [trim]
+size — сторона квадратной иконки; с флагом trim — объект обрезается по себе, а масштаб общий для
+всего листа (ширина ячейки → size px), чтобы предметы разных уровней сохраняли относительный размер.
 Фон убирается заливкой от краёв ячейки: всё, что связано с краем и близко по цвету к фону.
 """
 import sys
@@ -9,6 +11,7 @@ from PIL import Image, ImageFilter
 
 src, cols, rows, out, names = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5].split(',')
 size = int(sys.argv[6]) if len(sys.argv) > 6 else 128
+trim = len(sys.argv) > 7 and sys.argv[7] == 'trim'
 TOL = 26  # допуск по цвету к фону
 
 im = Image.open(src).convert('RGB')
@@ -37,12 +40,33 @@ for k, name in enumerate(names):
             continue
         m[x, y] = 0
         q.extend(((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)))
+    # тень-эллипс под предметом (Gemini часто её рисует): нейтрально-серые пиксели у низа ячейки,
+    # примыкающие к уже убранному фону, тоже в прозрачность
+    if trim:
+        neutral = lambda p: max(p) - min(p) <= 10 and 120 <= sum(p) / 3 <= 245
+        q = deque((x, y) for y in range(int(h * 0.6), h) for x in range(w) if m[x, y] == 0)
+        seen2 = set()
+        while q:
+            x, y = q.popleft()
+            for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if not (0 <= nx < w and int(h * 0.6) <= ny < h) or (nx, ny) in seen2 or m[nx, ny] == 0:
+                    continue
+                seen2.add((nx, ny))
+                if neutral(px[nx, ny]):
+                    m[nx, ny] = 0
+                    q.append((nx, ny))
     # мягкий край, без ореола
     mask = mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.8))
     rgba = cell.convert('RGBA')
     rgba.putalpha(mask)
     box = mask.point(lambda v: 255 if v > 20 else 0).getbbox()
     rgba = rgba.crop(box)
+    if trim:
+        k = size / cw
+        rgba = rgba.resize((max(1, round(rgba.width * k)), max(1, round(rgba.height * k))), Image.LANCZOS)
+        rgba.save(f'{out}/{name}.webp', 'WEBP', quality=84, method=6)
+        print(name, rgba.size)
+        continue
     s = size / max(rgba.size)
     rgba = rgba.resize((max(1, round(rgba.width * s)), max(1, round(rgba.height * s))), Image.LANCZOS)
     canvas = Image.new('RGBA', (size, size), (0, 0, 0, 0))

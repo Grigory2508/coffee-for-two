@@ -12,6 +12,8 @@ import {
   STOCK_ORDER,
   STOCK_PACKS,
   UPGRADES,
+  CAFE_SLOTS,
+  CAFE_SLOT_ORDER,
   UPGRADE_ORDER,
   MARKETING,
   MARKETING_ORDER,
@@ -20,7 +22,7 @@ import {
   type DecorSlot,
   type StockId,
 } from '../core/content';
-import { canMake, capacity, catInCafe, counterHolder, energyNow, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, roomGate, todayMenu, type ShiftSummary } from '../core/engine';
+import { slotLevel, canMake, capacity, catInCafe, counterHolder, energyNow, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, roomGate, todayMenu, type ShiftSummary } from '../core/engine';
 import { fillBasket, lowStock, shiftsLeft, stockByUrgency } from './stock';
 import type { CafeState } from '../core/types';
 import { leaderboard } from '../core/leaderboard';
@@ -301,7 +303,7 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
   return (
     <div class="tab">
       <div class="card hero">
-        <CafeArt />
+        <CafeArt levels={state.levels} />
         <div class="hero-body">
           <div class="hero-title">{t('shiftTitle')}</div>
           <div class="muted small">{t('shiftLength', { n: guestsPerShift(state) })}</div>
@@ -328,7 +330,7 @@ export function CafeInfoTab() {
   const shown = rows.filter((_, i) => i < 3 || Math.abs(i - youAt) <= 1);
   return (
     <div class="tab">
-      <CafeArt />
+      <CafeArt levels={state.levels} />
 
       {!state.room.unlocked && (
         <div class="card">
@@ -462,6 +464,7 @@ export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { su
       <div class="muted center">
         {t('tips')}: {summary.tips} 🪙
       </div>
+      {summary.pastry > 0 && <div class="muted center">{t('pastryLine', { n: summary.pastry })}</div>}
       <div class="result-grid">
         <div>
           <b>{summary.served}</b>
@@ -705,6 +708,50 @@ function GrowthSeg() {
   const { state, send } = useGame();
   return (
     <>
+      <div class="card">
+        <div class="card-title">🏪 {t('cafeLevelsTitle')}</div>
+        <div class="muted small">{t('cafeLevelsHint')}</div>
+        {CAFE_SLOT_ORDER.map((slot) => {
+          const def = CAFE_SLOTS[slot];
+          const lvl = slotLevel(state, slot);
+          const cur = def.levels[lvl - 1];
+          const next = def.levels[lvl];
+          return (
+            <div class="slot-row">
+              <div class="row">
+                <span class="icon">{def.icon}</span>
+                <div class="grow">
+                  <b>{L(def.name)}</b>
+                  <span class="level-dots">
+                    {def.levels.map((_, i) => (
+                      <span class={i < lvl ? 'on' : ''} />
+                    ))}
+                  </span>
+                  <div class="small">
+                    {L(cur.name)} · <span class="muted">{L(cur.desc)}</span>
+                  </div>
+                </div>
+              </div>
+              {next ? (
+                <div class="slot-next">
+                  <div class="small grow">
+                    → <b>{L(next.name)}</b>: {L(next.desc)}
+                  </div>
+                  <div class="buy">
+                    <button class="btn small" disabled={state.money < next.cost} onClick={() => send({ type: 'upgradeSlot', slot })}>
+                      1⚡ · {next.cost} 🪙
+                    </button>
+                    {state.money < next.cost && <div class="small muted">{t('lacking', { n: next.cost - state.money })}</div>}
+                  </div>
+                </div>
+              ) : (
+                <span class="tag slot-max">{t('maxLevel')}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       <div class="card">
         <div class="card-title">📣 {t('marketingTitle')}</div>
         {state.marketing && <div class="small">{t('marketingActive', { name: L(MARKETING[state.marketing.id].name), n: state.marketing.shiftsLeft })}</div>}

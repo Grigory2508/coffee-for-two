@@ -79,7 +79,7 @@ await playShift(a, '03-shift');
 await a.getByRole('button', { name: 'Назад' }).click();
 
 // богатое меню для проверки масштаба
-await mutate(a, "s.money = 9000; s.menu = ['espresso','americano','cappuccino','latte','icedLatte','cocoa','raf','cinnamonCap','flatWhite','caramelLatte','mocha']; s.featured = ['latte','icedLatte','raf','cinnamonCap','caramelLatte','mocha']; s.stock = { beans: 40, milk: 40, syrup: 30, cocoa: 20, catFood: 0 }; s.upgrades.machinePro = true; s.upgrades.terrace = true; for (const p of s.players) { p.energy = 3; p.energyAt = Date.now(); }");
+await mutate(a, "s.money = 9000; s.menu = ['espresso','americano','cappuccino','latte','icedLatte','cocoa','raf','cinnamonCap','flatWhite','caramelLatte','mocha']; s.featured = ['latte','icedLatte','raf','cinnamonCap','caramelLatte','mocha']; s.stock = { beans: 40, milk: 40, syrup: 30, cocoa: 20, catFood: 0 }; s.levels = { machine: 3, vitrine: 3, tables: 3, decor: 3 }; for (const p of s.players) { p.energy = 3; p.energyAt = Date.now(); }");
 await a.reload();
 await a.waitForSelector('.hud');
 await shot(a, '04-barista-counter-rich');

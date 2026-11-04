@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { COMPONENTS, COMPONENT_ORDER, CONFIG, DRINKS, REGULARS, STATIONS, type ComponentId, type StationId, type StockId } from '../core/content';
-import { recipeUsage } from '../core/engine';
+import { recipeUsage, slotEffects, slotLevel } from '../core/engine';
 import type { GuestResult, ShiftPlan } from '../core/types';
 import { L, t } from '../i18n';
 import { now as clockNow } from '../platform/clock';
 import { tg } from '../platform/telegram';
 import { CupSection } from './cup';
-import { CompIcon } from './icons';
+import { CompIcon, TableArt } from './icons';
 import { useGame } from './game';
 
 // Смена: 75 секунд, только тапы. У стойки один гость; следующий подходит, когда этого обслужили
@@ -63,7 +63,10 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const cleanSamples = useRef(0);
   const cleanliness = () => (cleanSamples.current ? cleanSum.current / cleanSamples.current : 1);
 
-  const heads: Record<StationId, number> = { machine: state.upgrades.machinePro ? 2 : 1, milk: 1, extras: 99 };
+  const fx = slotEffects(state);
+  const heads: Record<StationId, number> = { machine: fx.machineHeads, milk: 1, extras: 99 };
+  // профессиональная машина варит эспрессо быстрее
+  const brewMs = (c: ComponentId) => Math.round((COMPONENTS[c].brewMs ?? 0) / (c === 'shot' ? fx.shotSpeed : 1));
 
   // Кнопки ингредиентов стоят на постоянных местах: набор зависит от всего открытого меню,
   // а не от меню дня — раскладка меняется только когда открывают новый напиток
@@ -206,7 +209,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     }
     if (comp.brewMs) {
       tg.haptic('select');
-      setCup({ ...cup, brewing: [...cup.brewing, { c, until: elapsed + comp.brewMs, total: comp.brewMs }] });
+      setCup({ ...cup, brewing: [...cup.brewing, { c, until: elapsed + brewMs(c), total: brewMs(c) }] });
     } else {
       tg.haptic('tap');
       setCup({ ...cup, items: [...cup.items, c] });
@@ -338,10 +341,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
       <div class={`tables-grid n${tables.length}`}>
         {tables.map((tb, i) => (
           <button class={`table-tile ${tb.status}`} onClick={() => wipe(i)} disabled={tb.status !== 'dirty'} aria-label={t('tables')}>
-            <span class="chair l" />
-            <span class="chair r" />
-            <span class="table-top">{tb.status === 'dirty' ? '🍽️' : tb.status === 'busy' ? '☕' : ''}</span>
-            {tb.status === 'busy' && <span class="sitter">{tb.face}</span>}
+            <TableArt level={slotLevel(state, 'tables')} status={tb.status} face={tb.face} />
           </button>
         ))}
       </div>
@@ -413,7 +413,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
                     <button class={`station ${COMPONENTS[c].brewMs ? 'timed' : ''} ${needs(c) ? 'wanted' : ''} ${bounce === c ? 'bounce' : ''}`} disabled={avail <= 0} onClick={() => add(c)}>
                       <span class="station-icon"><CompIcon c={c} size={34} /></span>
                       <span class="station-name">{L(COMPONENTS[c].name)}</span>
-                      {COMPONENTS[c].brewMs && <span class="station-time">{t('sec', { n: (COMPONENTS[c].brewMs! / 1000).toFixed(1) })}</span>}
+                      {COMPONENTS[c].brewMs && <span class="station-time">{t('sec', { n: (brewMs(c) / 1000).toFixed(1) })}</span>}
                       {st && avail <= 5 && <span class="station-stock">{avail > 0 ? avail : t('outOf')}</span>}
                     </button>
                   );
