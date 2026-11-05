@@ -600,6 +600,8 @@ export const LOGO_FRAMES: L10n[] = [
 ];
 export interface LogoDeco extends L10n {
   art?: string;
+  /** Доля, которую занимает форма логотипа внутри украшения (по кольцу на рисунке). По умолчанию 0.66. */
+  inner?: number;
 }
 /** Украшения вокруг формы: маски из public/art/logo, красятся в цвет фона. Индекс 0 — без украшения. */
 export const LOGO_DECOS: LogoDeco[] = [
@@ -616,6 +618,18 @@ export const LOGO_DECOS: LogoDeco[] = [
   { art: 'ld-flourish', ru: 'Завитки', en: 'Flourishes' },
   { art: 'ld-holly', ru: 'Остролист', en: 'Holly' },
   { art: 'ld-maple', ru: 'Клён', en: 'Maple' },
+  { art: 'ld-flames', inner: 0.49, ru: 'Пламя', en: 'Flames' },
+  { art: 'ld-bolts', inner: 0.5, ru: 'Молнии', en: 'Lightning' },
+  { art: 'ld-drips', inner: 0.4, ru: 'Потёки краски', en: 'Paint drips' },
+  { art: 'ld-wings', inner: 0.37, ru: 'Крылья', en: 'Wings' },
+  { art: 'ld-horns', inner: 0.59, ru: 'Рожки', en: 'Devil horns' },
+  { art: 'ld-cat-ears', inner: 0.59, ru: 'Кошачьи уши', en: 'Cat ears' },
+  { art: 'ld-crown-top', inner: 0.5, ru: 'Корона сверху', en: 'Crown on top' },
+  { art: 'ld-splat', inner: 0.46, ru: 'Клякса', en: 'Paint splat' },
+  { art: 'ld-thorns', inner: 0.53, ru: 'Терновник', en: 'Thorns' },
+  { art: 'ld-tentacles', inner: 0.47, ru: 'Щупальца', en: 'Tentacles' },
+  { art: 'ld-dragon', inner: 0.48, ru: 'Дракон', en: 'Dragon' },
+  { art: 'ld-chain', inner: 0.72, ru: 'Цепь', en: 'Chain' },
 ];
 export const LOGO_FONTS: L10n[] = [
   { ru: 'Округлый', en: 'Rounded' },

@@ -107,7 +107,7 @@ export function LogoView({ logo, size = 40 }: { logo: Logo; size?: number }) {
   return (
     <svg viewBox="0 0 100 100" width={size} height={size} class="logo" aria-hidden="true">
       {deco?.art && <MaskIcon src={`logo/${deco.art}`} color={bg} box={[0, 0, 100, 100]} />}
-      <g transform={deco?.art ? 'translate(50 50) scale(0.66) translate(-50 -50)' : undefined}>
+      <g transform={deco?.art ? `translate(50 50) scale(${deco.inner ?? 0.66}) translate(-50 -50)` : undefined}>
       <path d={shape} fill={bg} />
       {l.frame > 0 && (
         <g transform="translate(50 50) scale(0.86) translate(-50 -50)">
