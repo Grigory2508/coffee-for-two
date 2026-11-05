@@ -12,6 +12,8 @@ import {
   STOCK_PACKS,
   STOCK_GROUPS,
   DESSERTS,
+  WALLPAPERS,
+  defaultWallpaper,
   inSeason,
   CAFE_SLOTS,
   CAFE_SLOT_ORDER,
@@ -34,6 +36,7 @@ import { inviteLink } from '../net/backend';
 import { track } from '../platform/analytics';
 import { tg } from '../platform/telegram';
 import { CatPortrait, DecorIcon, RoomScene } from './art';
+import { WallSwatch } from './wall';
 import { CupView } from './cup';
 import { RecipeIcons } from './recipe';
 import { expectedCup } from '../core/assembly';
@@ -953,7 +956,12 @@ function RoomPage({ roomKey }: { roomKey: string }) {
   const room = state.home.rooms[roomKey];
   const p = getPlayer(state, me.id)!;
   const slots = ROOM_SLOTS[room.kind];
-  const [slot, setSlot] = useState<DecorSlot>(slots[0]);
+  const [slot, setSlotRaw] = useState<DecorSlot>(slots[0]);
+  const [showWalls, setShowWalls] = useState(false);
+  const setSlot = (x: DecorSlot) => {
+    setShowWalls(false);
+    setSlotRaw(x);
+  };
   const canEdit = room.open && (room.kind !== 'bedroom' || room.owner === me.id);
   const title = roomTitle(state, roomKey, me.id);
 
@@ -963,7 +971,7 @@ function RoomPage({ roomKey }: { roomKey: string }) {
     const steps = [50, 200, left].filter((n, i, a) => n > 0 && n <= left && a.indexOf(n) === i);
     return (
       <div class="room-wrap">
-        <RoomScene kind={room.kind} placed={{}} catMood={null} locked />
+        <RoomScene kind={room.kind} placed={{}} catMood={null} locked wallpaper={room.wallpaper} />
         <div class="card center">
           <h3>🔒 {title}</h3>
           <Progress label={t('roomLockedFund', { fund: room.fund, cost })} value={room.fund / cost} />
@@ -988,7 +996,7 @@ function RoomPage({ roomKey }: { roomKey: string }) {
 
   return (
     <div class="room-wrap">
-      <RoomScene kind={room.kind} placed={room.placed} catMood={room.kind === 'hall' && state.cat ? state.cat.mood : null} onSlot={canEdit ? setSlot : undefined} />
+      <RoomScene kind={room.kind} placed={room.placed} wallpaper={room.wallpaper} catMood={room.kind === 'hall' && state.cat ? state.cat.mood : null} onSlot={canEdit ? setSlot : undefined} />
       <div class="card">
         <div class="card-title">
           {ROOMS[room.kind].icon} {title}
@@ -1004,14 +1012,39 @@ function RoomPage({ roomKey }: { roomKey: string }) {
                   {L(SLOT_LABEL[sl])}
                 </button>
               ))}
+              <button class={`chip ${showWalls ? 'on' : ''}`} onClick={() => setShowWalls(true)}>
+                🖌 {t('wallpaper')}
+              </button>
             </div>
+            {showWalls ? (
+              <div class="decor-grid">
+                {WALLPAPERS.filter((w) => w.rooms.includes(room.kind)).map((w) => {
+                  const cur = (room.wallpaper ?? defaultWallpaper(room.kind)) === w.id;
+                  const have = (room.wallpapers ?? [defaultWallpaper(room.kind)]).includes(w.id);
+                  return (
+                    <div class={`decor ${cur ? 'placed' : ''}`}>
+                      <WallSwatch w={w} />
+                      <div class="small">{L(w.name)}</div>
+                      <div class="tiny muted">{t('joyPlus', { n: w.joy })}</div>
+                      {cur ? (
+                        <span class="tiny muted">{t('onWall')}</span>
+                      ) : (
+                        <button class="btn small" disabled={!have && p.wallet < w.cost} onClick={() => send({ type: 'setWallpaper', id: w.id, room: roomKey })}>
+                          {have ? t('place') : `👛 ${w.cost}`}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
             <div class="decor-grid">
               {DECOR.filter((d) => d.slot === slot).map((d) => {
                 const owned = room.owned.includes(d.id);
                 const placed = room.placed[d.slot] === d.id;
                 return (
                   <div class={`decor ${placed ? 'placed' : ''}`}>
-                    <DecorIcon slot={d.slot} v={d.variant} />
+                    <DecorIcon id={d.id} />
                     <div class="small">{L(d.name)}</div>
                     <div class="tiny muted">{itemEffect(d)}</div>
                     {placed ? (
@@ -1031,6 +1064,7 @@ function RoomPage({ roomKey }: { roomKey: string }) {
                 );
               })}
             </div>
+            )}
           </>
         )}
       </div>

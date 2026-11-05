@@ -1,5 +1,7 @@
 // Квартира: фон комнаты из Nano Banana + мебель слоями (как сцена кофейни).
-import type { DecorSlot, RoomKind } from '../core/content';
+import { WALLPAPER_BY_ID, defaultWallpaper, type DecorSlot, type RoomKind } from '../core/content';
+import { WallLayer } from './wall';
+import { ART_RATIO } from './artSizes';
 import { art } from './icons';
 
 export function CatShape({ mood }: { mood: number }) {
@@ -33,65 +35,154 @@ export function CatPortrait({ mood }: { mood: number }) {
   );
 }
 
-/** Место предмета на фоне комнаты, % от картинки: x — центр, w — ширина, bottom — опора снизу, h — высота рамки пустого места. */
-type Place = { x: number; w: number; bottom: number; h: number };
+// ---------- сцена комнаты ----------
+// Стена — вектор (обои), пол с плинтусом — картинка, окно и кухонная тумба — отдельные спрайты.
+// Мебель ставится в реальном масштабе (разбор с дизайнером интерьера): высота в см, ширина — из пропорций спрайта.
+// Слои сортируются по глубине (bottom): что ближе к зрителю — рисуется позже.
 
-/** Порядок слоёв: сначала стена, потом пол, впереди — то, что ближе к зрителю. */
-const ROOM_ART: Record<RoomKind, Partial<Record<DecorSlot, Place>>> = {
+/** Линия пола (верх плинтуса), % высоты сцены. */
+export const FLOOR = 75.2;
+/** Видимая стена от пола до верха кадра — 250 см (потолок 260 чуть за кадром). */
+export const CM = FLOOR / 250;
+/** 1 см по горизонтали в % ширины (сцена 4:3). */
+const CMW = CM * 0.75;
+/** Высота над полом (см) → % от верха сцены. */
+export const atCm = (cm: number) => FLOOR - cm * CM;
+
+/** h — реальная высота в см (одна на слот или по тирам 0/1/2); w — ширина в % (для штор и ковров). */
+type Place = { x: number; bottom: number; h?: number | [number, number, number]; w?: number; hang?: true };
+type RoomSpec = { slots: Partial<Record<DecorSlot, Place>>; window: { x: number; wcm: number; sill: number }; counter?: { x: number; w: number; bottom: number } };
+
+export const ROOM_ART: Record<RoomKind, RoomSpec> = {
+  // Растение · окно · диван (картина и полка над ним) · торшер; перед диваном столик и ковёр
   hall: {
-    window: { x: 27.5, w: 40, bottom: 55, h: 44 },
-    wall: { x: 64, w: 12, bottom: 47, h: 18 },
-    shelf: { x: 86, w: 20, bottom: 38, h: 14 },
-    rug: { x: 55, w: 50, bottom: 99, h: 18 },
-    plant: { x: 7, w: 12, bottom: 88, h: 24 },
-    sofa: { x: 60, w: 40, bottom: 86, h: 22 },
-    lamp: { x: 89, w: 12, bottom: 88, h: 40 },
-    table: { x: 45, w: 24, bottom: 98, h: 12 },
+    window: { x: 25, wcm: 120, sill: 85 },
+    slots: {
+      window: { x: 25, bottom: atCm(70), w: 38, hang: true },
+      wall: { x: 52, bottom: atCm(110), h: [45, 45, 60], hang: true },
+      shelf: { x: 73, bottom: atCm(115), h: [25, 60, 80], hang: true },
+      rug: { x: 61, bottom: 99, w: 52 },
+      plant: { x: 8, bottom: FLOOR + 3, h: [70, 60, 110] },
+      lamp: { x: 91, bottom: FLOOR + 3, h: 165 },
+      sofa: { x: 61, bottom: FLOOR + 5, h: 85 },
+      table: { x: 61, bottom: 95, h: 45 },
+    },
   },
+  // Холодильник · окно (растение под ним) · плита вплотную к тумбе · тумба с кофеваркой; стол перед тумбой
   kitchen: {
-    window: { x: 27.5, w: 40, bottom: 55, h: 44 },
-    shelf: { x: 80, w: 20, bottom: 33, h: 12 },
-    coffeemaker: { x: 66, w: 8, bottom: 56, h: 13 },
-    plant: { x: 5, w: 9, bottom: 88, h: 20 },
-    stove: { x: 24, w: 15, bottom: 87, h: 22 },
-    fridge: { x: 50, w: 12, bottom: 87, h: 40 },
-    dining: { x: 45, w: 42, bottom: 99, h: 22 },
+    window: { x: 31, wcm: 100, sill: 105 },
+    counter: { x: 77.6, w: 44.8, bottom: 85 },
+    slots: {
+      window: { x: 31, bottom: atCm(95), w: 30, hang: true },
+      shelf: { x: 82, bottom: atCm(160), h: [25, 55, 75], hang: true },
+      fridge: { x: 11, bottom: FLOOR + 4, h: 175 },
+      plant: { x: 31, bottom: FLOOR + 4, h: [60, 55, 90] },
+      stove: { x: 47.5, bottom: 85, h: 92 },
+      coffeemaker: { x: 66, bottom: 59, h: 34 },
+      dining: { x: 74, bottom: 98, h: 95 },
+    },
   },
+  // Стол (картина над ним) · торшер · кровать под окном · шкаф или комод в углу; растение впереди
   bedroom: {
-    window: { x: 50, w: 44, bottom: 58, h: 48 },
-    wall: { x: 17, w: 14, bottom: 44, h: 18 },
-    wardrobe: { x: 92, w: 17, bottom: 90, h: 52 },
-    desk: { x: 18, w: 35, bottom: 91, h: 24 },
-    lamp: { x: 39, w: 9, bottom: 90, h: 34 },
-    rug: { x: 64, w: 40, bottom: 99, h: 14 },
-    bed: { x: 64, w: 44, bottom: 96, h: 32 },
-    plant: { x: 6, w: 10, bottom: 99, h: 22 },
+    window: { x: 50, wcm: 120, sill: 105 },
+    slots: {
+      window: { x: 50, bottom: atCm(95), w: 38, hang: true },
+      wall: { x: 14, bottom: atCm(120), h: [45, 45, 60], hang: true },
+      desk: { x: 15, bottom: FLOOR + 3, h: [85, 95, 85] },
+      lamp: { x: 31, bottom: FLOOR + 2, h: 160 },
+      wardrobe: { x: 86, bottom: FLOOR + 3, h: 200 },
+      rug: { x: 51, bottom: 99, w: 44 },
+      bed: { x: 52, bottom: FLOOR + 6, h: 100 },
+      plant: { x: 5, bottom: 98, h: [60, 55, 90] },
+    },
   },
 };
 
-export function RoomScene({ kind = 'hall', placed, catMood, onSlot, locked }: { kind?: RoomKind; placed: Partial<Record<DecorSlot, string>>; catMood: number | null; onSlot?: (s: DecorSlot) => void; locked?: boolean }) {
-  const pos = ROOM_ART[kind];
+/** Предметы со своей высотой на общем месте (комод вместо шкафа). */
+const ITEM_H: Record<string, number> = { 'dresser-0': 85, 'dresser-1': 90, 'dresser-2': 85 };
+
+function heightCm(p: Place, id: string): number {
+  if (ITEM_H[id]) return ITEM_H[id];
+  if (Array.isArray(p.h)) return p.h[Number(id.split('-').pop()) || 0];
+  return p.h ?? 80;
+}
+
+/** Размер предмета в % сцены. */
+function boxOf(p: Place, id: string) {
+  const ratio = ART_RATIO[`home-${id}`] ?? 1.3;
+  if (p.w) return { w: p.w, h: (p.w / ratio) * (4 / 3) };
+  const h = heightCm(p, id) * CM;
+  return { w: heightCm(p, id) * CMW * ratio, h };
+}
+
+const LAMP_TOP = 0.08; // абажур — у самого верха спрайта
+
+export function RoomScene({ kind = 'hall', placed, catMood, onSlot, locked, wallpaper }: { kind?: RoomKind; placed: Partial<Record<DecorSlot, string>>; catMood: number | null; onSlot?: (s: DecorSlot) => void; locked?: boolean; wallpaper?: string }) {
+  const spec = ROOM_ART[kind];
+  const wp = WALLPAPER_BY_ID[wallpaper ?? ''] ?? WALLPAPER_BY_ID[defaultWallpaper(kind)];
+  const win = spec.window;
+  const winW = win.wcm * CMW;
+  // Слои: сначала висящее на стене, потом ковёр, потом напольное — от дальнего к ближнему
+  const slots = (Object.keys(spec.slots) as DecorSlot[]).sort((a, b) => {
+    const A = spec.slots[a]!;
+    const B = spec.slots[b]!;
+    const ka = A.hang ? 0 : a === 'rug' ? 1 : 2;
+    const kb = B.hang ? 0 : b === 'rug' ? 1 : 2;
+    return ka - kb || A.bottom - B.bottom;
+  });
   return (
     <div class={`scene scene-art scene-layers room-scene ${locked ? 'scene-locked' : ''}`} role="img" aria-label={kind}>
-      <img class="layer-base" src={art(`room-${kind}`)} alt="" draggable={false} />
-      {(Object.keys(pos) as DecorSlot[]).map((slot) => {
-        const p = pos[slot]!;
+      <WallLayer w={wp} />
+      {kind === 'kitchen' && <KitchenTiles />}
+      <img class="layer" src={art('room-window')} style={{ left: `${win.x}%`, width: `${winW}%`, bottom: `${100 - atCm(win.sill)}%`, transform: 'translateX(-50%)' }} alt="" draggable={false} />
+      <img class="layer room-floor" src={art(`room-floor-${kind}`)} alt="" draggable={false} />
+      <div class="layer baseboard-shade" style={{ top: `${FLOOR - 1.2}%` }} />
+      {spec.counter && <div class="layer contact" style={{ left: `${spec.counter.x}%`, width: `${spec.counter.w * 0.95}%`, bottom: `${100 - spec.counter.bottom - 1}%` }} />}
+      {spec.counter && <img class="layer" src={art('room-counter')} style={{ left: `${spec.counter.x}%`, width: `${spec.counter.w}%`, bottom: `${100 - spec.counter.bottom}%`, transform: 'translateX(-50%)' }} alt="" draggable={false} />}
+      {slots.map((slot) => {
+        const p = spec.slots[slot]!;
         const id = placed[slot];
-        const style = { left: `${p.x - p.w / 2}%`, width: `${p.w}%`, bottom: `${100 - p.bottom}%` };
         if (!id) {
-          return onSlot ? <button class="layer room-empty" style={{ ...style, height: `${p.h}%` }} onClick={() => onSlot(slot)} aria-label={slot} /> : null;
+          if (!onSlot) return null;
+          const b = boxOf(p, `${slot}-1`);
+          return <button class="layer room-empty" style={{ left: `${p.x}%`, transform: 'translateX(-50%)', bottom: `${100 - p.bottom}%`, height: `${Math.min(b.h, 45)}%`, width: `${Math.min(b.w, 45)}%` }} onClick={() => onSlot(slot)} aria-label={slot} />;
         }
-        return <img class={`layer ${onSlot ? 'tappable' : ''}`} src={art(`home-${id}`)} style={style} alt="" draggable={false} onClick={onSlot ? () => onSlot(slot) : undefined} />;
+        const b = boxOf(p, id);
+        const style = { left: `${p.x}%`, bottom: `${100 - p.bottom}%`, width: `${b.w}%`, transform: 'translateX(-50%)' };
+        return (
+          <>
+            {!p.hang && slot !== 'rug' && <div class="layer contact" style={{ left: `${p.x}%`, width: `${b.w * 0.88}%`, bottom: `${100 - p.bottom - 1}%` }} />}
+            {slot === 'lamp' && <div class="layer lamp-glow" style={{ left: `${p.x}%`, width: `${b.h * 0.9}%`, bottom: `${100 - p.bottom + b.h * (1 - LAMP_TOP) - b.h * 0.45}%` }} />}
+            <img class={`layer ${onSlot ? 'tappable' : ''}`} src={art(`home-${id}`)} style={style} alt="" draggable={false} onClick={onSlot ? () => onSlot(slot) : undefined} />
+          </>
+        );
       })}
       {catMood !== null && (
-        <svg viewBox="-12 -2 140 100" class="layer room-cat" style={{ left: '30%', width: '12%', bottom: '8%' }} aria-hidden="true">
+        <svg viewBox="-12 -2 140 100" class="layer room-cat" style={{ left: '30%', width: '12%', bottom: '4%' }} aria-hidden="true">
           <CatShape mood={catMood} />
         </svg>
       )}
+      <div class="layer room-vignette" />
     </div>
   );
 }
 
-export function DecorIcon({ slot, v }: { slot: DecorSlot; v: number }) {
-  return <img class="decor-icon" src={art(`home-${slot}-${v}`)} alt="" draggable={false} />;
+/** Кухонный фартук: белая плитка за тумбой и плитой (от 90 до 150 см). */
+function KitchenTiles() {
+  return (
+    <svg class="layer-base" viewBox="0 0 400 300" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <pattern id="ktiles" width="12" height="12" patternUnits="userSpaceOnUse">
+          <rect x="0.6" y="0.6" width="10.8" height="10.8" fill="#fbf8f2" stroke="#d6cfc2" stroke-width="1" />
+        </pattern>
+      </defs>
+      <rect x="0" y={(atCm(150) / 100) * 300} width="400" height={((atCm(85) - atCm(150)) / 100) * 300} fill="url(#ktiles)" />
+      <rect x="0" y={(atCm(150) / 100) * 300 - 1.5} width="400" height="3" fill="#c9bba5" />
+      <rect x="0" y={(atCm(85) / 100) * 300} width="400" height="1.5" fill="#c9bba5" />
+    </svg>
+  );
+}
+
+export function DecorIcon({ id }: { id: string }) {
+  return <img class="decor-icon" src={art(`home-${id}`)} alt="" draggable={false} />;
 }

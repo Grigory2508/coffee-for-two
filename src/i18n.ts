@@ -441,6 +441,9 @@ const ru = {
   log_gems_daily: '{who} выполнил(а) цель дня: +{gems} 💎',
   log_gems_bought: '{who}: +{gems} 💎',
   log_cafe_decor_bought: '{who} украсил(а) зал: {item}',
+  wallpaper: 'Обои',
+  joyPlus: '+{n} к уюту',
+  onWall: 'наклеены',
   // ---- сборка по шагам ----
   dessertWord: 'десерт',
   notLikeThat: 'Не так: {what}',
@@ -900,6 +903,9 @@ const en: Dict = {
   log_gems_daily: '{who} completed the daily goal: +{gems} 💎',
   log_gems_bought: '{who}: +{gems} 💎',
   log_cafe_decor_bought: '{who} decorated the hall: {item}',
+  wallpaper: 'Wallpaper',
+  joyPlus: '+{n} coziness',
+  onWall: 'on the wall',
   // ---- step assembly ----
   dessertWord: 'dessert',
   notLikeThat: 'Not right: {what}',

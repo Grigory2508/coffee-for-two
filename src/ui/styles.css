@@ -2559,3 +2559,13 @@ img.decor-icon { width: 100%; height: 56px; object-fit: contain; }
 .steps-col .counter-actions .btn.small { flex: none; padding: 8px 10px; }
 .steps-col .counter-actions .serve-btn { min-width: 0; }
 .shift .counter-bar { margin-top: 0; }
+.room-scene .wall-layer { width: 100%; height: 100%; }
+.room-scene .room-floor { left: 0; width: 100%; bottom: 0; top: auto; height: auto; }
+.room-scene img.layer { height: auto; }
+.wall-swatch { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.wall-swatch svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.room-scene .layer-base { position: absolute; inset: 0; }
+.room-scene .contact { height: 2.2%; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(closest-side, #5b3a2948, #5b3a2900); }
+.room-scene .baseboard-shade { left: 0; right: 0; height: 1.2%; background: linear-gradient(#6b4a3a00, #6b4a3a26); }
+.room-scene .room-vignette { inset: 0; background: radial-gradient(ellipse at 50% 45%, #0000 60%, #3a24160f 100%); }
+.room-scene .lamp-glow { aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(closest-side, #ffe9a855, #ffe9a800); mix-blend-mode: screen; }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, DECOR_BY_ID, DRINKS, inSeason, type Role } from './content';
+import { CONFIG, DECOR_BY_ID, DRINKS, WALLPAPERS, defaultWallpaper, inSeason, type Role } from './content';
 import { cupDiff, expectedCup, nextStep } from './assembly';
-import { apply, createCafe, digestFor, energyNow, happyRatingMult, vitalsNow, freeRoles, getPlayer, guestsPerShift, makeShiftPlan, migrate, waveArrivals, shiftSegments, NPC_ID, npcCoveredRoles, rating, roleCount, slotEffects, todayMenu, weekId } from './engine';
+import { apply, createCafe, homeEffects, digestFor, energyNow, happyRatingMult, vitalsNow, freeRoles, getPlayer, guestsPerShift, makeShiftPlan, migrate, waveArrivals, shiftSegments, NPC_ID, npcCoveredRoles, rating, roleCount, slotEffects, todayMenu, weekId } from './engine';
 import type { CafeState, Command, GuestResult } from './types';
 
 const T0 = Date.UTC(2026, 10, 2, 9, 0, 0); // понедельник
@@ -373,6 +373,23 @@ describe('ворота, квартира, кот', () => {
     s = run(s, 'a', { type: 'buyDecor', id: 'bed-0', room: 'bed:a' }, t).state;
     // бонус кровати — только хозяину
     expect(vitalsNow(s, getPlayer(s, 'a')!, t).restPerMin).toBeGreaterThan(vitalsNow(s, getPlayer(s, 'b')!, t).restPerMin);
+  });
+
+  it('обои: первый раз платно, потом переклеить бесплатно; дают уют', () => {
+    let s = join(fresh('barista'));
+    const t = T0;
+    const paid = WALLPAPERS.find((w) => w.rooms.includes('hall') && w.id !== defaultWallpaper('hall'))!;
+    getPlayer(s, 'a')!.wallet = 1000;
+    const joy0 = homeEffects(s, 'a').joy;
+    s = run(s, 'a', { type: 'setWallpaper', id: paid.id }, t).state;
+    expect(s.home.rooms.hall.wallpaper).toBe(paid.id);
+    expect(getPlayer(s, 'a')!.wallet).toBe(1000 - paid.cost);
+    expect(homeEffects(s, 'a').joy).toBe(joy0 + paid.joy);
+    s = run(s, 'a', { type: 'setWallpaper', id: defaultWallpaper('hall') }, t).state;
+    s = run(s, 'a', { type: 'setWallpaper', id: paid.id }, t).state;
+    expect(getPlayer(s, 'a')!.wallet).toBe(1000 - paid.cost);
+    const kitchenOnly = WALLPAPERS.find((w) => !w.rooms.includes('hall'))!;
+    expect(() => run(s, 'a', { type: 'setWallpaper', id: kitchenOnly.id }, t)).toThrow('bad_item');
   });
 
   it('зарплата: половина выручки поровну, остальное — в бюджет; перевод в бюджет', () => {
