@@ -60,7 +60,7 @@ export const ROOM_ART: Record<RoomKind, RoomSpec> = {
     slots: {
       window: { x: 25, bottom: atCm(70), w: 38, hang: true },
       wall: { x: 52, bottom: atCm(110), h: [45, 45, 60], hang: true },
-      shelf: { x: 73, bottom: atCm(115), h: [25, 60, 80], hang: true },
+      shelf: { x: 73, bottom: atCm(115), h: 55, hang: true },
       rug: { x: 61, bottom: 99, w: 52 },
       plant: { x: 8, bottom: FLOOR + 3, h: [70, 60, 110] },
       lamp: { x: 91, bottom: FLOOR + 3, h: 165 },
@@ -74,7 +74,7 @@ export const ROOM_ART: Record<RoomKind, RoomSpec> = {
     counter: { x: 77.6, w: 44.8, bottom: 85 },
     slots: {
       window: { x: 31, bottom: atCm(95), w: 30, hang: true },
-      shelf: { x: 82, bottom: atCm(160), h: [25, 55, 75], hang: true },
+      shelf: { x: 82, bottom: atCm(160), h: 50, hang: true },
       fridge: { x: 11, bottom: FLOOR + 4, h: 175 },
       plant: { x: 31, bottom: FLOOR + 4, h: [60, 55, 90] },
       stove: { x: 47.5, bottom: 85, h: 92 },
@@ -88,7 +88,7 @@ export const ROOM_ART: Record<RoomKind, RoomSpec> = {
     slots: {
       window: { x: 50, bottom: atCm(95), w: 38, hang: true },
       wall: { x: 14, bottom: atCm(120), h: [45, 45, 60], hang: true },
-      desk: { x: 15, bottom: FLOOR + 3, h: [85, 95, 85] },
+      desk: { x: 15, bottom: FLOOR + 3, h: 105 },
       lamp: { x: 31, bottom: FLOOR + 2, h: 160 },
       wardrobe: { x: 86, bottom: FLOOR + 3, h: 200 },
       rug: { x: 51, bottom: 99, w: 44 },
@@ -98,8 +98,8 @@ export const ROOM_ART: Record<RoomKind, RoomSpec> = {
   },
 };
 
-/** Предметы со своей высотой на общем месте (комод вместо шкафа). */
-const ITEM_H: Record<string, number> = { 'dresser-0': 85, 'dresser-1': 90, 'dresser-2': 85 };
+/** Предметы со своей высотой на общем месте (комод вместо шкафа). Высота спрайта с декором сверху: корпус ~85 см. */
+const ITEM_H: Record<string, number> = { 'dresser-0': 112, 'dresser-1': 115, 'dresser-2': 112 };
 
 function heightCm(p: Place, id: string): number {
   if (ITEM_H[id]) return ITEM_H[id];
