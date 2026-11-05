@@ -91,6 +91,9 @@ export interface HomeRoom {
   fund: number;
   owned: string[];
   placed: Partial<Record<DecorSlot, string>>;
+  /** Обои: купленные в этой комнате и наклеенные сейчас. */
+  wallpapers?: string[];
+  wallpaper?: string;
 }
 
 /** Предложение сменить название и/или логотип: черновик → менеджер выставляет (платит) → одобряют все. */
@@ -264,6 +267,7 @@ export type Command =
   | { type: 'toggleFeatured'; id: DrinkId }
   | { type: 'buyDecor'; id: string; room?: string }
   | { type: 'placeDecor'; slot: DecorSlot; id: string | null; room?: string }
+  | { type: 'setWallpaper'; id: string; room?: string }
   | { type: 'contributeRoom'; room: string; amount: number }
   | { type: 'transferToBudget'; amount: number }
   | { type: 'buyCatFood' }

@@ -306,7 +306,82 @@ export const DECOR: DecorItem[] = ALL_SLOTS.flatMap((slot) =>
   })),
 );
 
+// Комод — низкая альтернатива шкафу на том же месте спальни
+DECOR.push(
+  ...[0, 1, 2].map((variant) => ({
+    id: `dresser-${variant}`,
+    slot: 'wardrobe' as DecorSlot,
+    variant,
+    name: { ru: `Комод (${VARIANT_NAMES[variant].ru})`, en: `${VARIANT_NAMES[variant].en[0].toUpperCase()}${VARIANT_NAMES[variant].en.slice(1)} chest of drawers` },
+    cost: Math.round(200 * [1, 2, 4][variant]),
+    rest: Math.round(0.01 * VARIANT_MULT[variant] * 1000) / 1000,
+    joy: Math.round(2 * VARIANT_MULT[variant]),
+    shiftCut: 0,
+  })),
+);
+
 export const DECOR_BY_ID: Record<string, DecorItem> = Object.fromEntries(DECOR.map((d) => [d.id, d]));
+
+// ---------- обои ----------
+
+export type WallPattern = 'plain' | 'stripes' | 'dots' | 'flowers' | 'diamonds' | 'herringbone' | 'panel' | 'check' | 'tiles';
+
+export interface Wallpaper {
+  id: string;
+  name: L10n;
+  tier: 0 | 1 | 2;
+  cost: number;
+  /** +к потолку счастья, пока наклеены. */
+  joy: number;
+  pattern: WallPattern;
+  /** Основной цвет стены и цвет рисунка. */
+  base: string;
+  ink: string;
+  /** Нижняя панель (для pattern 'panel') или второй цвет. */
+  accent?: string;
+  rooms: RoomKind[];
+  /** Обои, с которыми комната открывается. */
+  def?: true;
+}
+
+const WP = (id: string, ru: string, en: string, tier: 0 | 1 | 2, pattern: WallPattern, base: string, ink: string, rooms: RoomKind[], accent?: string, def?: true): Wallpaper => ({
+  id, name: { ru, en }, tier, cost: def ? 0 : [80, 180, 350][tier], joy: def ? 0 : [1, 3, 5][tier], pattern, base, ink, accent, rooms, def,
+});
+
+export const WALLPAPERS: Wallpaper[] = [];
+export const WALLPAPER_BY_ID: Record<string, Wallpaper> = {};
+export function setWallpapers(list: Wallpaper[]) {
+  WALLPAPERS.splice(0, WALLPAPERS.length, ...list);
+  for (const k of Object.keys(WALLPAPER_BY_ID)) delete WALLPAPER_BY_ID[k];
+  for (const w of list) WALLPAPER_BY_ID[w.id] = w;
+}
+setWallpapers([
+  // Зал — медовый пол; мебель белая/серая, дерево с кремом, терракота с мятой
+  WP('wp-cream-stripe', 'Кремовая полоска', 'Cream stripes', 0, 'stripes', '#fbeed2', '#f3dfb8', ['hall'], undefined, true),
+  WP('wp-milk', 'Молочная', 'Milk', 0, 'plain', '#f6efe2', '#ece2cf', ['hall']),
+  WP('wp-peach-dots', 'Персиковый горошек', 'Peach dots', 1, 'dots', '#f6e0d2', '#ecc9b2', ['hall']),
+  WP('wp-blue-diamond', 'Голубые ромбы', 'Blue diamonds', 1, 'diamonds', '#dde8ec', '#c6d8df', ['hall']),
+  WP('wp-honey-herring', 'Медовая ёлочка', 'Honey herringbone', 2, 'herringbone', '#f7e6c4', '#e9cf9f', ['hall']),
+  WP('wp-sage-panel', 'Шалфейные панели', 'Sage panels', 2, 'panel', '#f3eedf', '#9fb38f', ['hall'], '#d3dec4'),
+  // Кухня — плитка фартука уже даёт сетку: спокойные узоры, без мятного (холодильник)
+  WP('wp-sage', 'Светлый шалфей', 'Light sage', 0, 'plain', '#dce5d0', '#cddabe', ['kitchen'], undefined, true),
+  WP('wp-cream-plain', 'Сливочная', 'Cream', 0, 'plain', '#f5ebd6', '#ecddbf', ['kitchen']),
+  WP('wp-butter-stripe', 'Масляная полоска', 'Butter stripes', 1, 'stripes', '#f4e6be', '#eadaab', ['kitchen']),
+  WP('wp-peach-dots-k', 'Персиковый горошек', 'Peach dots', 1, 'dots', '#f5ddcc', '#ebcab4', ['kitchen']),
+  WP('wp-bistro-check', 'Клетка «бистро»', 'Bistro check', 2, 'check', '#f6ead8', '#e3b9a0', ['kitchen']),
+  WP('wp-olive-flowers', 'Оливковые цветочки', 'Olive flowers', 2, 'flowers', '#e3e8d0', '#bcc8a0', ['kitchen'], '#f3e0a8'),
+  // Спальня — светлая лаванда вместо насыщенной, пудра, голубой, крем
+  WP('wp-lavender-dots', 'Лавандовый горошек', 'Lavender dots', 0, 'dots', '#e0daf0', '#d0c8e6', ['bedroom'], undefined, true),
+  WP('wp-linen', 'Серый лён', 'Grey linen', 0, 'plain', '#ebe6dd', '#ddd6ca', ['bedroom']),
+  WP('wp-lilac-stripe', 'Сиреневая полоска', 'Lilac stripes', 1, 'stripes', '#e3dcef', '#d4cbe6', ['bedroom']),
+  WP('wp-powder-flowers', 'Пудровые цветочки', 'Powder flowers', 1, 'flowers', '#f1dedc', '#e2c2c0', ['bedroom'], '#fbf3e6'),
+  WP('wp-sky-diamond', 'Голубые ромбы', 'Sky diamonds', 2, 'diamonds', '#dce6f0', '#c6d5e6', ['bedroom']),
+  WP('wp-cream-panel', 'Кремовые панели', 'Cream panels', 2, 'panel', '#f6ebd8', '#c9a27e', ['bedroom'], '#ead8bf'),
+]);
+/** Обои по умолчанию — то, что было в комнате с самого начала. */
+export function defaultWallpaper(kind: RoomKind): string {
+  return WALLPAPERS.find((w) => w.rooms.includes(kind) && w.def)?.id ?? WALLPAPERS[0].id;
+}
 
 export const STICKERS = ['☕', '❤️', '🐈', '👍', '🙏', '🥐', '😴', '🎉'];
 

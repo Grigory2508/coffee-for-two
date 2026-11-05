@@ -3,6 +3,8 @@
 import {
   CONFIG,
   DECOR_BY_ID,
+  WALLPAPER_BY_ID,
+  defaultWallpaper,
   DRINKS,
   DRINK_LIST,
   DESSERTS,
@@ -172,6 +174,7 @@ export function homeEffects(s: CafeState, playerId: PlayerId) {
       joy += d.joy;
       shiftCut += d.shiftCut;
     }
+    joy += WALLPAPER_BY_ID[r.wallpaper ?? '']?.joy ?? 0;
   }
   const catJoy = s.cat ? Math.round((s.cat.mood / 100) * 8) : 0;
   const totalJoy = joy + catJoy;
@@ -1442,6 +1445,25 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
         room.placed[cmd.slot] = item.id;
         addLog(s, at, actor, 'decor_placed', { id: item.id });
       }
+      break;
+    }
+    case 'setWallpaper': {
+      // Обои: первая поклейка каждого рисунка в комнате платная, потом можно менять бесплатно
+      const room = getRoom(s, cmd.room);
+      if (!room.open) throw new GameError('room_locked');
+      if (room.kind === 'bedroom' && room.owner !== actor) throw new GameError('not_your_room');
+      const wp = WALLPAPER_BY_ID[cmd.id];
+      if (!wp || !wp.rooms.includes(room.kind)) throw new GameError('bad_item');
+      room.wallpapers ??= [defaultWallpaper(room.kind)];
+      syncAll(s, at);
+      if (!room.wallpapers.includes(wp.id)) {
+        requireWallet(p, wp.cost);
+        p.wallet -= wp.cost;
+        room.wallpapers.push(wp.id);
+        markDay(p, at);
+        addLog(s, at, actor, 'decor_bought', { id: wp.id });
+      }
+      room.wallpaper = wp.id;
       break;
     }
     case 'contributeRoom': {
