@@ -36,10 +36,17 @@ def bands(busy, gap, minlen):
 
 clean = ndimage.binary_opening(ink, iterations=1)
 rows = bands(clean.sum(axis=1) > 2, 25, 30)
+import os
+GRID = os.environ.get('GRID')  # «4x4»: ровная сетка, когда соседние значки почти касаются
+if GRID:
+    gc, gr = map(int, GRID.split('x'))
+    rows = [(round(r * a.shape[0] / gr), round((r + 1) * a.shape[0] / gr)) for r in range(gr)]
 print('rows', len(rows))
 k, bad = 0, []
 for (y0, y1) in rows:
     cols = bands(clean[y0:y1].sum(axis=0) > 1, 25, 20)
+    if GRID:
+        cols = [(round(c * a.shape[1] / gc), round((c + 1) * a.shape[1] / gc)) for c in range(gc)]
     for (x0, x1) in cols:
         if k >= len(names):
             break

@@ -490,7 +490,7 @@ export const LOGO_COLORS = ['#6b4226', '#c8873a', '#e8a598', '#6f9e88', '#3f6b8a
 export interface LogoIcon extends L10n {
   /** Маска-силуэт из public/art/logo (перекрашивается в цвет рисунка). Без art — значок нарисован в SVG. */
   art?: string;
-  group: 'base' | 'coffee' | 'bakery' | 'animals' | 'nature';
+  group: 'base' | 'coffee' | 'bakery' | 'animals' | 'nature' | 'funny' | 'fantasy' | 'street';
 }
 const LI = (art: string, group: LogoIcon['group'], ru: string, en: string): LogoIcon => ({ art, group, ru, en });
 /** Индексы 0–8 не меняются (сохранённые логотипы); 8 — «без значка». Новые значки — только в конец. */
@@ -536,6 +536,22 @@ export const LOGO_ICONS: LogoIcon[] = [
   LI('li-mountains', 'nature', 'Горы', 'Mountains'),
   LI('li-book', 'nature', 'Книга', 'Book'),
   LI('li-bulb', 'nature', 'Лампочка', 'Light bulb'),
+  LI('lw-crazy-cup', 'funny', 'Безумная чашка', 'Crazy cup'),
+  LI('lw-sleepy-bean', 'funny', 'Сонное зерно', 'Sleepy bean'),
+  LI('lw-cool-croissant', 'funny', 'Круассан в очках', 'Cool croissant'),
+  LI('lw-grin-donut', 'funny', 'Пончик-улыбака', 'Grinning donut'),
+  LI('lw-cat-in-cup', 'funny', 'Кот в чашке', 'Cat in a cup'),
+  LI('lw-raccoon', 'funny', 'Енот с кофе', 'Raccoon with coffee'),
+  LI('lw-capybara', 'funny', 'Капибара', 'Capybara'),
+  LI('lw-frog-cup', 'funny', 'Лягушка в чашке', 'Frog in a cup'),
+  LI('lw-ghost', 'funny', 'Призрак с кофе', 'Coffee ghost'),
+  LI('lw-toast', 'funny', 'Тост', 'Toast'),
+  LI('lw-sloth', 'funny', 'Ленивец', 'Sloth'),
+  LI('lw-duck', 'funny', 'Утка-бариста', 'Barista duck'),
+  LI('lw-cat-tongue', 'funny', 'Кот с языком', 'Cheeky cat'),
+  LI('lw-dizzy-cup', 'funny', 'Взбодрённая чашка', 'Dizzy cup'),
+  LI('lw-mustache', 'funny', 'Усы с моноклем', 'Mustache & monocle'),
+  LI('lw-cat-push', 'funny', 'Кот роняет чашку', 'Cat pushing a cup'),
 ];
 export const LOGO_NO_ICON = 8;
 export const LOGO_FRAMES: L10n[] = [

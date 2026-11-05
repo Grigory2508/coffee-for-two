@@ -34,7 +34,7 @@ function scallop(n: number, r1: number, r2: number): string {
 }
 
 let maskSeq = 0;
-const ICON_GROUPS = ['coffee', 'bakery', 'animals', 'nature', 'base'] as const;
+const ICON_GROUPS = ['funny', 'fantasy', 'street', 'coffee', 'bakery', 'animals', 'nature', 'base'] as const;
 
 /** Значок-маска: силуэт из файла, залитый цветом рисунка. */
 function MaskIcon({ src, color, box = [20, 20, 60, 60] }: { src: string; color: string; box?: [number, number, number, number] }) {
