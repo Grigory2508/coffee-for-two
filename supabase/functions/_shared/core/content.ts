@@ -1,27 +1,11 @@
 // Весь игровой контент и баланс в одном месте. Цифры — стартовые, для плейтеста.
 
-export type L10n = { ru: string; en: string };
+import type { DrinkId, L10n, StockId } from './menu.ts';
+import { emptyStock } from './menu.ts';
+export * from './menu.ts';
 
-export type ComponentId = 'shot' | 'water' | 'milk' | 'foam' | 'cream' | 'syrup' | 'caramel' | 'cocoa' | 'cinnamon' | 'ice';
-export type StockId = 'beans' | 'milk' | 'syrup' | 'cocoa' | 'cups' | 'catFood';
-export type DrinkId =
-  | 'espresso'
-  | 'americano'
-  | 'cappuccino'
-  | 'latte'
-  | 'raf'
-  | 'cocoa'
-  | 'flatWhite'
-  | 'icedLatte'
-  | 'cinnamonCap'
-  | 'caramelLatte'
-  | 'mocha';
-/** Станция за стойкой: кофемашина, молочная станция, полка добавок. */
-export type StationId = 'machine' | 'milk' | 'extras';
-/** Отдельные улучшения без уровней (старые machinePro/cozyHall/terrace переехали в уровни кофейни). */
-export type UpgradeId = 'fridge';
-/** Слоты кофейни, которые растут по уровням и видны на иллюстрации. */
-export type CafeSlot = 'machine' | 'vitrine';
+/** Слоты кофейни, которые растут по уровням. */
+export type CafeSlot = 'machine' | 'fridge' | 'storage' | 'vitrine';
 export type Role = 'barista' | 'manager';
 export type MarketingId = 'flyers' | 'blogger';
 export type DecorSlot =
@@ -89,9 +73,27 @@ export const CONFIG = {
   // Квартира: зал открыт сразу, кухня и спальни открываются взносами
   kitchenCost: 1500,
   bedroomCost: 800,
-  shiftGuests: 8,
-  shiftQueueStart: 3,
-  terraceTables: 2,
+  // Смена: гостей столько, сколько аудиторий покрывает меню; ~7 с на гостя, не дольше 120 с
+  shiftBaseGuests: 5,
+  shiftGuestCap: 15,
+  shiftMsPerGuest: 7_000,
+  shiftMaxMs: 120_000,
+  shiftMinMs: 40_000,
+  /** Последний гость приходит не позже этой доли смены. */
+  shiftLastArrival: 0.83,
+  /** Сколько гостей стоит у стойки (у них тикает терпение), остальные ждут в очереди без таймера. */
+  counterSlots: 3,
+  /** Гость не нашёл свой напиток в меню дня: эта доля берёт другой, остальные уходят. */
+  substituteShare: 0.7,
+  altMilkShare: 0.15,
+  altMilkPrice: 40,
+  /** Нет нужного молока: гость берёт на обычном, но эта доля уходит. */
+  noMilkLeave: 1 / 3,
+  dessertWant: 0.4,
+  dessertWantEvening: 0.6,
+  /** Нет любимого десерта: эта доля берёт другой. */
+  dessertSubstitute: 0.3,
+  pairTipBonus: 0.2,
   // NPC подхватывает роль напарника, если тот не действовал столько времени
   npcCoverAfterMs: 24 * 3600_000,
   // …но только пока хоть один живой игрок заходил недавно
@@ -107,14 +109,13 @@ export const CONFIG = {
   applicationExpiresMs: 48 * 3600_000,
   maxPendingApplications: 3,
   officeHoldMs: 3 * 60_000,
-  shiftDurationMs: 75_000,
   basePatienceMs: 16_000,
   startMoney: 300,
-  startStock: { beans: 20, milk: 20, syrup: 0, cocoa: 0, cups: 20, catFood: 0 } as Record<StockId, number>,
+  startStock: { ...emptyStock(), beans: 20, milk_regular: 20, cream_regular: 0, cups: 20 } as Record<StockId, number>,
   // Доля гостей, которые берут кофе с собой (им нужен бумажный стакан со склада)
   takeawayShare: 0.4,
-  baseCapacity: 40,
-  fridgeMilkCapacity: 80,
+  /** Вместимость склада на каждый продукт по уровню склада. */
+  storageCapacity: [40, 80, 120],
   ratingWindow: 30,
   ratingMinGuests: 5,
   npcShiftEveryMs: 6 * 3600_000,
@@ -127,82 +128,6 @@ export const CONFIG = {
   logMax: 80,
   managerDiscountPerLevel: 0.02,
   managerDiscountMax: 0.1,
-};
-
-/**
- * Компоненты напитков. station — где берётся за стойкой; brewMs — сколько готовится
- * (пока идёт, станция занята, но можно работать с другой чашкой); uses — что тратится со склада.
- */
-export const COMPONENTS: Record<
-  ComponentId,
-  { name: L10n; icon: string; station: StationId; uses?: StockId; brewMs?: number; vol: number; color: string; layer: number; kind?: 'foam' | 'cream' | 'sprinkle' | 'ice' }
-> = {
-  // vol — доля в чашке, layer — порядок снизу вверх, kind — как рисовать слой в разрезе чашки
-  shot: { name: { ru: 'Эспрессо', en: 'Shot' }, icon: '☕', station: 'machine', uses: 'beans', brewMs: 1400, vol: 1, color: '#3b2314', layer: 3 },
-  water: { name: { ru: 'Кипяток', en: 'Hot water' }, icon: '💧', station: 'machine', vol: 2, color: '#a87b52', layer: 4 },
-  milk: { name: { ru: 'Молоко', en: 'Milk' }, icon: '🥛', station: 'milk', uses: 'milk', vol: 1.5, color: '#e9d3ad', layer: 5 },
-  foam: { name: { ru: 'Пенка', en: 'Foam' }, icon: '☁️', station: 'milk', uses: 'milk', brewMs: 1000, vol: 1, color: '#fffaf0', layer: 6, kind: 'foam' },
-  cream: { name: { ru: 'Сливки', en: 'Whipped cream' }, icon: '🍦', station: 'milk', uses: 'milk', vol: 1, color: '#ffffff', layer: 7, kind: 'cream' },
-  syrup: { name: { ru: 'Ваниль', en: 'Vanilla' }, icon: '🍯', station: 'extras', uses: 'syrup', vol: 0.5, color: '#e8b04a', layer: 1 },
-  caramel: { name: { ru: 'Карамель', en: 'Caramel' }, icon: '🍮', station: 'extras', uses: 'syrup', vol: 0.5, color: '#c46f24', layer: 0 },
-  cocoa: { name: { ru: 'Какао', en: 'Cocoa' }, icon: '🍫', station: 'extras', uses: 'cocoa', vol: 1, color: '#5a3524', layer: 2 },
-  cinnamon: { name: { ru: 'Корица', en: 'Cinnamon' }, icon: '🪵', station: 'extras', vol: 0, color: '#8b4a22', layer: 8, kind: 'sprinkle' },
-  ice: { name: { ru: 'Лёд', en: 'Ice' }, icon: '🧊', station: 'extras', vol: 0, color: '#e6f5ff', layer: 9, kind: 'ice' },
-};
-
-export const COMPONENT_ORDER: ComponentId[] = ['shot', 'water', 'milk', 'foam', 'cream', 'syrup', 'caramel', 'cocoa', 'cinnamon', 'ice'];
-
-export const STATIONS: Record<StationId, { name: L10n; icon: string }> = {
-  machine: { name: { ru: 'Кофемашина', en: 'Espresso machine' }, icon: '☕' },
-  milk: { name: { ru: 'Молочная станция', en: 'Milk station' }, icon: '🥛' },
-  extras: { name: { ru: 'Добавки', en: 'Extras' }, icon: '🧂' },
-};
-export const STATION_ORDER: StationId[] = ['machine', 'milk', 'extras'];
-
-export interface Drink {
-  id: DrinkId;
-  name: L10n;
-  recipe: ComponentId[]; // мультимножество, порядок не важен
-  price: number;
-  unlockCost: number; // 0 — доступен с начала
-}
-
-export const DRINKS: Record<DrinkId, Drink> = {
-  espresso: { id: 'espresso', name: { ru: 'Эспрессо', en: 'Espresso' }, recipe: ['shot'], price: 80, unlockCost: 0 },
-  americano: { id: 'americano', name: { ru: 'Американо', en: 'Americano' }, recipe: ['shot', 'water'], price: 100, unlockCost: 0 },
-  cappuccino: { id: 'cappuccino', name: { ru: 'Капучино', en: 'Cappuccino' }, recipe: ['shot', 'milk', 'foam'], price: 150, unlockCost: 0 },
-  latte: { id: 'latte', name: { ru: 'Латте', en: 'Latte' }, recipe: ['shot', 'milk', 'milk', 'foam'], price: 170, unlockCost: 300 },
-  cocoa: { id: 'cocoa', name: { ru: 'Какао', en: 'Hot cocoa' }, recipe: ['cocoa', 'milk', 'foam'], price: 130, unlockCost: 400 },
-  raf: { id: 'raf', name: { ru: 'Раф', en: 'Raf' }, recipe: ['shot', 'milk', 'syrup'], price: 190, unlockCost: 500 },
-  flatWhite: { id: 'flatWhite', name: { ru: 'Флэт уайт', en: 'Flat white' }, recipe: ['shot', 'shot', 'milk'], price: 180, unlockCost: 600 },
-  icedLatte: { id: 'icedLatte', name: { ru: 'Айс-латте', en: 'Iced latte' }, recipe: ['shot', 'milk', 'ice'], price: 170, unlockCost: 450 },
-  cinnamonCap: { id: 'cinnamonCap', name: { ru: 'Капучино с корицей', en: 'Cinnamon cappuccino' }, recipe: ['shot', 'milk', 'foam', 'cinnamon'], price: 185, unlockCost: 550 },
-  caramelLatte: { id: 'caramelLatte', name: { ru: 'Карамельный латте', en: 'Caramel latte' }, recipe: ['shot', 'milk', 'foam', 'caramel'], price: 200, unlockCost: 700 },
-  mocha: { id: 'mocha', name: { ru: 'Мокко', en: 'Mocha' }, recipe: ['shot', 'cocoa', 'milk', 'cream'], price: 210, unlockCost: 800 },
-};
-
-export const DRINK_ORDER: DrinkId[] = ['espresso', 'americano', 'cappuccino', 'latte', 'icedLatte', 'cocoa', 'raf', 'cinnamonCap', 'flatWhite', 'caramelLatte', 'mocha'];
-export const START_MENU: DrinkId[] = ['espresso', 'americano', 'cappuccino'];
-
-export const STOCK_PACKS: Record<StockId, { name: L10n; icon: string; amount: number; cost: number }> = {
-  beans: { name: { ru: 'Зёрна', en: 'Beans' }, icon: '🫘', amount: 20, cost: 300 },
-  milk: { name: { ru: 'Молоко', en: 'Milk' }, icon: '🥛', amount: 20, cost: 240 },
-  syrup: { name: { ru: 'Сиропы', en: 'Syrups' }, icon: '🍯', amount: 10, cost: 180 },
-  cocoa: { name: { ru: 'Какао', en: 'Cocoa' }, icon: '🍫', amount: 10, cost: 160 },
-  cups: { name: { ru: 'Стаканы с собой', en: 'Takeaway cups' }, icon: '🥤', amount: 20, cost: 80 },
-  catFood: { name: { ru: 'Корм для кота', en: 'Cat food' }, icon: '🐟', amount: 10, cost: 120 },
-};
-
-/** Склад кофейни (закупает управляющий из бюджета). Корм кота покупают из личных денег. */
-export const STOCK_ORDER: StockId[] = ['beans', 'milk', 'syrup', 'cocoa', 'cups'];
-
-export const UPGRADES: Record<UpgradeId, { name: L10n; desc: L10n; cost: number; icon: string }> = {
-  fridge: {
-    name: { ru: 'Второй холодильник', en: 'Second fridge' },
-    desc: { ru: 'Молока помещается 80 вместо 40', en: 'Milk capacity 80 instead of 40' },
-    cost: 600,
-    icon: '🧊',
-  },
 };
 
 export interface SlotLevel {
@@ -220,30 +145,48 @@ export const CAFE_SLOTS: Record<CafeSlot, { name: L10n; icon: string; levels: Sl
     name: { ru: 'Кофемашина', en: 'Espresso machine' },
     icon: '☕',
     levels: [
-      { name: { ru: 'Домашняя', en: 'Home machine' }, desc: { ru: 'Один рожок', en: 'One group head' }, cost: 0 },
-      { name: { ru: 'Двухрожковая', en: 'Two-group' }, desc: { ru: 'Два эспрессо одновременно, +15% чаевых', en: 'Two shots at once, +15% tips' }, cost: 800 },
-      { name: { ru: 'Профессиональная', en: 'Professional' }, desc: { ru: 'Два рожка, эспрессо вдвое быстрее, +25% чаевых', en: 'Two heads, shots twice as fast, +25% tips' }, cost: 1800 },
+      { name: { ru: 'Однорожковая', en: 'One group' }, desc: { ru: '1 группа, слабый пар, вода из чайника', en: '1 group, weak steam, water from a kettle' }, cost: 0 },
+      { name: { ru: 'Двухрожковая', en: 'Two-group' }, desc: { ru: 'Двойной эспрессо за один пролив, пар сильнее', en: 'Double shot in one pull, stronger steam' }, cost: 800 },
+      { name: { ru: 'Профессиональная', en: 'Professional' }, desc: { ru: 'Мощный пар, кран горячей воды, эспрессо быстрее', en: 'Powerful steam, hot water tap, faster shots' }, cost: 1800 },
+    ],
+  },
+  fridge: {
+    name: { ru: 'Холодильник', en: 'Fridge' },
+    icon: '🧊',
+    levels: [
+      { name: { ru: 'Маленький', en: 'Small' }, desc: { ru: 'Обычное молоко и сливки', en: 'Whole milk and cream' }, cost: 0 },
+      { name: { ru: 'Средний', en: 'Medium' }, desc: { ru: '+ овсяное молоко и сливки', en: '+ oat milk and cream' }, cost: 700 },
+      { name: { ru: 'Большой', en: 'Large' }, desc: { ru: '+ безлактозное и кокосовое', en: '+ lactose-free and coconut' }, cost: 1500 },
+    ],
+  },
+  storage: {
+    name: { ru: 'Склад', en: 'Storage' },
+    icon: '📦',
+    levels: [
+      { name: { ru: 'Кладовка', en: 'Closet' }, desc: { ru: '40 единиц каждого продукта', en: '40 of each product' }, cost: 0 },
+      { name: { ru: 'Стеллажи', en: 'Racks' }, desc: { ru: '80 единиц каждого продукта', en: '80 of each product' }, cost: 600 },
+      { name: { ru: 'Склад', en: 'Storeroom' }, desc: { ru: '120 единиц каждого продукта', en: '120 of each product' }, cost: 1400 },
     ],
   },
   vitrine: {
     name: { ru: 'Витрина', en: 'Pastry display' },
     icon: '🥐',
     levels: [
-      { name: { ru: 'Подставка для торта', en: 'Cake stand' }, desc: { ru: 'Выпечки почти нет', en: 'Hardly any pastry' }, cost: 0 },
-      { name: { ru: 'Витрина с выпечкой', en: 'Pastry case' }, desc: { ru: 'Гость за столиком берёт выпечку: +12 🪙', en: 'Dine-in guests buy pastry: +12 🪙' }, cost: 600 },
-      { name: { ru: 'Большая витрина', en: 'Large display' }, desc: { ru: 'Гость за столиком берёт выпечку: +25 🪙', en: 'Dine-in guests buy pastry: +25 🪙' }, cost: 1400 },
+      { name: { ru: 'Подставка', en: 'Cake stand' }, desc: { ru: '4 вида десертов', en: '4 kinds of desserts' }, cost: 0 },
+      { name: { ru: 'Витрина', en: 'Pastry case' }, desc: { ru: '8 видов десертов', en: '8 kinds of desserts' }, cost: 600 },
+      { name: { ru: 'Большая витрина', en: 'Large display' }, desc: { ru: '16 видов десертов', en: '16 kinds of desserts' }, cost: 1400 },
     ],
   },
 };
 
-export const CAFE_SLOT_ORDER: CafeSlot[] = ['machine', 'vitrine'];
+export const CAFE_SLOT_ORDER: CafeSlot[] = ['machine', 'fridge', 'storage', 'vitrine'];
 export const SLOT_MAX = 3;
 
 export const ROLES: Record<Role, { name: L10n; icon: string; desc: L10n }> = {
   barista: {
     name: { ru: 'Бариста', en: 'Barista' },
     icon: '☕',
-    desc: { ru: 'Обслуживает гостей, варит кофе, убирает столики', en: 'Serves guests, makes coffee, cleans tables' },
+    desc: { ru: 'Обслуживает гостей и собирает напитки', en: 'Serves guests and makes drinks' },
   },
   manager: {
     name: { ru: 'Управляющий', en: 'Manager' },
@@ -277,7 +220,6 @@ export const MARKETING: Record<MarketingId, { name: L10n; desc: L10n; cost: numb
 
 export const MARKETING_ORDER: MarketingId[] = ['flyers', 'blogger'];
 
-export const UPGRADE_ORDER: UpgradeId[] = ['fridge'];
 
 export interface DecorItem {
   id: string;

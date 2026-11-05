@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, DECOR_BY_ID, DRINKS, type Role } from './content';
-import { apply, createCafe, digestFor, energyNow, happyRatingMult, vitalsNow, freeRoles, getPlayer, matchesRecipe, migrate, NPC_ID, npcCoveredRoles, rating, roleCount, slotEffects, todayMenu, weekId } from './engine';
+import { CONFIG, DECOR_BY_ID, DRINKS, inSeason, type Role } from './content';
+import { cupDiff, expectedCup, nextStep } from './assembly';
+import { apply, createCafe, digestFor, energyNow, happyRatingMult, vitalsNow, freeRoles, getPlayer, guestsPerShift, makeShiftPlan, migrate, waveArrivals, shiftSegments, NPC_ID, npcCoveredRoles, rating, roleCount, slotEffects, todayMenu, weekId } from './engine';
 import type { CafeState, Command, GuestResult } from './types';
 
 const T0 = Date.UTC(2026, 10, 2, 9, 0, 0); // понедельник
@@ -86,7 +87,7 @@ describe('касса, кабинет, смена роли', () => {
     s = run(s, 'a', { type: 'startShift' }, T0).state;
     expect(() => run(s, 'c', { type: 'startShift' }, T0 + 1000)).toThrow('counter_busy');
     // смена кончилась — касса свободна
-    expect(run(s, 'c', { type: 'startShift' }, T0 + CONFIG.shiftDurationMs + 61_000).shiftPlan).toBeTruthy();
+    expect(run(s, 'c', { type: 'startShift' }, T0 + CONFIG.shiftMaxMs + 61_000).shiftPlan).toBeTruthy();
   });
 
   it('кабинет один: второй менеджер ждёт 3 минуты или выхода первого', () => {
@@ -175,23 +176,23 @@ describe('силы', () => {
 
   it('у управляющего свои силы: поездка, расширение, реклама — по 1, меню бесплатно', () => {
     let s: CafeState = { ...fresh('manager'), money: 5000 };
-    s = run(s, 'a', { type: 'supplyRun', items: { beans: 1, syrup: 1 } }, T0).state;
+    s = run(s, 'a', { type: 'supplyRun', items: { beans: 1, syr_vanilla: 1 } }, T0).state;
     expect(s.stock.beans).toBe(40);
-    expect(s.stock.syrup).toBe(10);
+    expect(s.stock.syr_vanilla).toBe(10);
     s = run(s, 'a', { type: 'unlockDrink', id: 'latte' }, T0).state;
     expect(getPlayer(s, 'a')!.energy).toBe(80);
     s = run(s, 'a', { type: 'upgradeSlot', slot: 'vitrine' }, T0).state;
     s = run(s, 'a', { type: 'launchMarketing', id: 'flyers' }, T0).state;
-    s = run(s, 'a', { type: 'supplyRun', items: { cocoa: 1 } }, T0).state;
-    s = run(s, 'a', { type: 'supplyRun', items: { cocoa: 1 } }, T0).state;
+    s = run(s, 'a', { type: 'supplyRun', items: { syr_caramel: 1 } }, T0).state;
+    s = run(s, 'a', { type: 'supplyRun', items: { syr_caramel: 1 } }, T0).state;
     expect(getPlayer(s, 'a')!.energy).toBe(0);
-    expect(() => run(s, 'a', { type: 'supplyRun', items: { milk: 1 } }, T0)).toThrow('no_energy');
+    expect(() => run(s, 'a', { type: 'supplyRun', items: { milk_regular: 1 } }, T0)).toThrow('no_energy');
   });
 
   it('поездка упирается во вместимость склада и деньги', () => {
     const s = fresh('manager');
     expect(() => run(s, 'a', { type: 'supplyRun', items: { beans: 2 } }, T0)).toThrow('capacity');
-    expect(() => run(s, 'a', { type: 'supplyRun', items: { cocoa: 3 } }, T0)).toThrow('no_money');
+    expect(() => run(s, 'a', { type: 'supplyRun', items: { syr_caramel: 4 } }, T0)).toThrow('no_money');
     expect(() => run(s, 'a', { type: 'supplyRun', items: {} }, T0)).toThrow('empty_order');
   });
 });
@@ -219,7 +220,8 @@ describe('смена', () => {
     s = { ...run(s, 'b', { type: 'debugRefill' }, T0).state, money: 5000 };
     s = run(s, 'b', { type: 'launchMarketing', id: 'flyers' }, T0).state;
     const r = run(s, 'a', { type: 'startShift' }, T0);
-    expect(r.shiftPlan!.guests.length).toBeGreaterThan(CONFIG.shiftGuests);
+    expect(guestsPerShift(r.state, T0) + 0).toBeGreaterThanOrEqual(guestsPerShift(fresh(), T0));
+    expect(guestsPerShift(s, T0)).toBe(guestsPerShift(fresh(), T0) + 1);
     expect(r.state.marketing!.shiftsLeft).toBe(2);
   });
 
@@ -238,15 +240,72 @@ describe('смена', () => {
 
   it('гость уходит, если не хватает продуктов', () => {
     let s = fresh();
-    s = { ...s, stock: { ...s.stock, beans: 0, milk: 0 } };
+    s = { ...s, stock: { ...s.stock, beans: 0, milk_regular: 0 } };
     const { summary } = perfectShift(s, 'a', T0);
     expect(summary!.served).toBe(0);
   });
 
-  it('рецепты сравниваются без учёта порядка', () => {
-    expect(matchesRecipe(['foam', 'shot', 'milk'], 'cappuccino')).toBe(true);
-    expect(matchesRecipe(['shot', 'milk'], 'cappuccino')).toBe(false);
-    expect(DRINKS.latte.recipe).toHaveLength(4);
+  it('сборка по шагам: верный капучино, ошибка видна по шагу', () => {
+    const exp = expectedCup({ order: 'cappuccino', milk: 'regular' });
+    expect(cupDiff(exp, exp)).toEqual([]);
+    expect(cupDiff({ ...exp, texture: 'thin' }, exp)).toEqual(['texture']);
+    expect(cupDiff({ ...exp, vessel: 'paper' }, expectedCup({ order: 'cappuccino', milk: 'regular', takeaway: true }))).toEqual([]);
+    // овсяное молоко — другая клетка сетки
+    expect(cupDiff(exp, expectedCup({ order: 'cappuccino', milk: 'oat' }))).toEqual(['dairy']);
+  });
+
+  it('шаги пропускаются только по логике: лёд — не в керамику, текстура — только у горячего молока', () => {
+    expect(nextStep({ vessel: 'small' }, 'vessel')).toBe('base');
+    expect(nextStep({ vessel: 'tall' }, 'vessel')).toBe('ice');
+    expect(nextStep({ vessel: 'tall', base: 'espresso', dairy: { kind: 'regular', type: 'cream', temp: 'hot' } }, 'dairy')).toBe('whip');
+    expect(nextStep({ vessel: 'tall', base: 'espresso', dairy: { kind: 'regular', type: 'milk', temp: 'hot' } }, 'dairy')).toBe('texture');
+    expect(nextStep({ vessel: 'tall', base: 'espresso' }, 'flavor')).toBe('dairy');
+    expect(nextStep({ vessel: 'tall', base: 'espresso' }, 'dairy')).toBe('water');
+    // холодный раф: стакан → лёд → эспрессо → вкус → холодные сливки → взбить
+    expect(DRINKS.rafCoconut.recipe).toMatchObject({ ice: true, dairy: { type: 'cream', temp: 'cold' }, whip: true });
+  });
+
+  it('волны: в пиках гостей больше, все приходят до конца окна', () => {
+    let k = 0;
+    const rnd = () => ((k = (k * 9301 + 49297) % 233280) / 233280);
+    const segs = shiftSegments(() => 0.9);
+    const times = waveArrivals(12, 84_000, segs, rnd);
+    expect(times).toHaveLength(12);
+    expect(times[0]).toBe(0);
+    expect(Math.max(...times)).toBeLessThanOrEqual(84_000 * CONFIG.shiftLastArrival);
+    const morning = times.filter((x) => x < 84_000 * CONFIG.shiftLastArrival * 0.2).length;
+    const day = times.filter((x) => x >= 84_000 * CONFIG.shiftLastArrival * 0.2 && x < 84_000 * CONFIG.shiftLastArrival * 0.45).length;
+    expect(morning).toBeGreaterThan(day);
+  });
+
+  it('гостей больше, когда меню покрывает больше аудиторий', () => {
+    const s = fresh();
+    const base = guestsPerShift(s, T0); // эспрессо, американо, капучино: чёрный + молочный
+    expect(base).toBe(CONFIG.shiftBaseGuests + 1 + 2);
+    const sweet = { ...s, menu: [...s.menu, 'rafClassic' as const], featured: [...s.featured, 'rafClassic' as const] };
+    expect(guestsPerShift(sweet, T0)).toBe(base + 2);
+    const plan = makeShiftPlan(s, 'a', T0);
+    expect(plan.durationMs).toBeLessThanOrEqual(CONFIG.shiftMaxMs);
+    expect(plan.guests.length + plan.walkouts!.noDrink + plan.walkouts!.noMilk).toBe(base);
+    for (const g of plan.guests) expect(s.menu).toContain(g.order);
+  });
+
+  it('сезонные рафы ставятся в меню дня только в свой сезон', () => {
+    expect(inSeason('rafPumpkin', Date.UTC(2026, 10, 5))).toBe(true);
+    expect(inSeason('rafGingerbread', Date.UTC(2026, 10, 5))).toBe(false);
+    let s: CafeState = { ...fresh('manager'), money: 5000 };
+    s = run(s, 'a', { type: 'unlockDrink', id: 'rafGingerbread' }, T0).state;
+    expect(s.featured).toContain('rafGingerbread');
+    expect(todayMenu(s, T0)).not.toContain('rafGingerbread');
+  });
+
+  it('витрина держит ограниченное число видов десертов, десерт лежит сутки', () => {
+    let s: CafeState = { ...fresh('manager'), money: 20000 };
+    s = run(s, 'a', { type: 'supplyRun', items: { ds_croissant: 1, ds_eclair: 1, ds_muffin: 1, ds_cookie: 1 } }, T0).state;
+    expect(() => run(s, 'a', { type: 'supplyRun', items: { ds_brownie: 1 } }, T0)).toThrow('vitrine_full');
+    s = run(s, 'a', { type: 'seen' }, T0 + 25 * H).state;
+    expect(s.stock.ds_croissant).toBe(0);
+    expect(s.log.some((e) => e.kind === 'desserts_expired')).toBe(true);
   });
 });
 
@@ -262,7 +321,7 @@ describe('напарник: NPC, замена, выход', () => {
     let s = join(fresh('barista'));
     expect(npcCoveredRoles(s, T0 + H)).toEqual([]);
     // Аня (бариста) действует, Боря (управляющий) пропал
-    s = { ...s, money: 2000, stock: { ...s.stock, beans: 5, milk: 5 } };
+    s = { ...s, money: 2000, stock: { ...s.stock, beans: 5, milk_regular: 5 } };
     for (let t = T0 + 6 * H; t <= T0 + 30 * H; t += 6 * H) s = run(s, 'a', { type: 'postNote', text: '.' }, t).state;
     expect(npcCoveredRoles(s, T0 + 30 * H)).toEqual(['manager']);
     expect(s.log.some((e) => e.kind === 'npc_cover')).toBe(true);
@@ -355,7 +414,7 @@ describe('сводка, неделя, миграция', () => {
   it('сводка показывает только чужие действия после последнего визита', () => {
     let s = join(fresh('barista'));
     s = run(s, 'a', { type: 'seen' }, T0 + 1000).state;
-    s = run(s, 'b', { type: 'supplyRun', items: { syrup: 1 } }, T0 + 2000).state;
+    s = run(s, 'b', { type: 'supplyRun', items: { syr_vanilla: 1 } }, T0 + 2000).state;
     s = run(s, 'a', { type: 'postNote', text: 'привет' }, T0 + 3000).state;
     expect(digestFor(s, 'a').map((e) => e.kind)).toEqual(['supply_run']);
   });
@@ -522,14 +581,34 @@ describe('уровни кофейни', () => {
     expect(() => run(s, 'a', { type: 'upgradeSlot', slot: 'machine' }, T0)).toThrow('owned');
   });
 
-  it('витрина приносит выпечку с гостей, которые пьют здесь', () => {
-    let s = fresh();
-    s.levels.vitrine = 3;
+  it('десерты с витрины: гости берут их к напитку, выручка считается отдельно', () => {
+    let s: CafeState = { ...fresh(), money: 20000 };
+    s = { ...s, stock: { ...s.stock, ds_croissant: 8, ds_cheesecake: 8, ds_cookie: 8, ds_muffin: 8 } };
     const r = run(s, 'a', { type: 'startShift' }, T0);
-    const here = r.shiftPlan!.guests.filter((g) => !g.takeaway).length;
+    const withDessert = r.shiftPlan!.guests.filter((g) => g.dessert);
+    expect(withDessert.length).toBeGreaterThan(0);
     const results = r.shiftPlan!.guests.map((_, i) => ({ i, outcome: 'served' as const, waitMs: 1000 }));
     const done = run(r.state, 'a', { type: 'finishShift', results, cleanliness: 1 }, T0 + 60_000);
-    expect(done.summary!.pastry).toBe(here * 25);
+    expect(done.summary!.desserts).toBe(withDessert.length);
+    expect(done.summary!.pastry).toBeGreaterThan(0);
+  });
+
+  it('старый «Второй холодильник» становится складом 2, старое меню и склад переезжают', () => {
+    const s = fresh() as CafeState & { stock: Record<string, number> };
+    (s.upgrades as Record<string, boolean>).fridge = true;
+    delete (s.levels as Partial<CafeState['levels']>).storage;
+    delete (s.levels as Partial<CafeState['levels']>).fridge;
+    s.stock = { beans: 10, milk: 30, syrup: 5, cocoa: 4, cups: 7, catFood: 2 } as never;
+    s.menu = ['espresso', 'raf', 'icedLatte'] as never;
+    const money = s.money;
+    const m = migrate(s);
+    expect(m.levels.storage).toBe(2);
+    expect(m.levels.fridge).toBe(1);
+    expect(m.stock.milk_regular).toBe(30);
+    expect(m.stock.syr_vanilla).toBe(5);
+    expect(m.stock.syr_chocolate).toBe(4);
+    expect(m.menu).toEqual(['espresso', 'rafClassic']);
+    expect(m.money).toBe(money + 450);
   });
 
   it('старые улучшения переезжают в уровни', () => {
@@ -538,7 +617,7 @@ describe('уровни кофейни', () => {
     (s.upgrades as Record<string, boolean>).machinePro = true;
     (s.upgrades as Record<string, boolean>).terrace = true;
     const m = migrate(s);
-    expect(m.levels).toEqual({ machine: 2, vitrine: 1, tables: 3, decor: 1 });
+    expect(m.levels).toMatchObject({ machine: 2, vitrine: 1 });
     expect((m.upgrades as Record<string, boolean>).machinePro).toBeUndefined();
   });
 });

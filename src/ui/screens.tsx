@@ -10,20 +10,23 @@ import {
   STICKERS,
   STOCK_ORDER,
   STOCK_PACKS,
-  UPGRADES,
+  STOCK_GROUPS,
+  DESSERTS,
+  inSeason,
   CAFE_SLOTS,
   CAFE_SLOT_ORDER,
-  UPGRADE_ORDER,
   MARKETING,
   MARKETING_ORDER,
   ROLES,
   ROOMS,
   ROOM_SLOTS,
   otherRole,
+  type CafeSlot,
   type DecorSlot,
+  type DessertId,
   type StockId,
 } from '../core/content';
-import { slotLevel, canMake, capacity, catInCafe, counterHolder, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, todayMenu, vitalsNow, roomOrder, roomCost, type ShiftSummary } from '../core/engine';
+import { slotLevel, slotEffects, audiences, shiftDuration, vitrineDesserts, canMake, capacity, catInCafe, counterHolder, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, todayMenu, vitalsNow, roomOrder, roomCost, type ShiftSummary } from '../core/engine';
 import { fillBasket, lowStock, shiftsLeft, stockByUrgency } from './stock';
 import type { CafeState, HomeRoom, Player } from '../core/types';
 import { fmtDuration, L, t } from '../i18n';
@@ -31,10 +34,12 @@ import { inviteLink } from '../net/backend';
 import { track } from '../platform/analytics';
 import { tg } from '../platform/telegram';
 import { CatPortrait, DecorIcon, RoomScene } from './art';
-import { CupSection } from './cup';
+import { CupView } from './cup';
+import { RecipeIcons } from './recipe';
+import { expectedCup } from '../core/assembly';
 import { LogoView } from './logo';
 import { BrandCard, CafeDecorCard, ShopSheet } from './social';
-import { CafeArt, Coin, CompIcon, StockIcon } from './icons';
+import { CafeArt, Coin, Img, StockIcon } from './icons';
 import { describeLog, playerName, roleName, roomTitle, timeAgo, useGame } from './game';
 
 // ---------- общие куски ----------
@@ -153,7 +158,7 @@ export async function sharePartnerInvite(code: string, key: string, toast: (s: s
 
 function staffStatus(s: CafeState, id: string, now: number): string | null {
   const plan = s.activeShifts[id];
-  if (plan && now - plan.startedAt < CONFIG.shiftDurationMs + 60_000) return t('staffOnCounter');
+  if (plan && now - plan.startedAt < (plan.durationMs ?? CONFIG.shiftMaxMs) + 60_000) return t('staffOnCounter');
   if (s.office && s.office.by === id && s.office.until > now) return t('staffInOffice');
   return null;
 }
@@ -343,8 +348,10 @@ function MenuToday({ compact }: { compact?: boolean }) {
           return (
             <div class={`menu-cell ${ok ? '' : 'short'}`}>
               <div class="menu-name">{L(d.name)}</div>
-              <CupSection recipe={d.recipe} size={compact ? 40 : 52} />
-              <div class="menu-recipe">{d.recipe.map((c) => <CompIcon c={c} size={18} />)}</div>
+              <CupView cup={expectedCup({ order: id, milk: 'regular' })} size={compact ? 40 : 52} />
+              <div class="menu-recipe">
+                <RecipeIcons drink={id} size={16} />
+              </div>
               <div class="menu-price">{ok ? `${d.price} 🪙` : t('cantMake')}</div>
             </div>
           );
@@ -371,7 +378,8 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
         <CafeArt levels={state.levels} decor={state.cafeDecor.placed} />
         <div class="hero-body">
           <div class="hero-title">{t('shiftTitle')}</div>
-          <div class="muted small">{t('shiftLength', { n: guestsPerShift(state) })}</div>
+          <div class="muted small">{t('shiftGuestsToday', { n: guestsPerShift(state, now), s: Math.round(shiftDuration(guestsPerShift(state, now)) / 1000) })}</div>
+          <AudienceChips />
           <button class="btn primary big wide" disabled={!active && (lack || !!counter)} onClick={onStartShift}>
             {active ? t('continueShift') : t('startShiftCost', { e: cost })}
           </button>
@@ -413,7 +421,7 @@ export function CafeInfoTab() {
           </div>
         </div>
         <div class="stock-mini">
-          {STOCK_ORDER.map((k) => (
+          {STOCK_ORDER.filter((k) => (state.stock[k] ?? 0) > 0 || shiftsLeft(state, k) !== Infinity).map((k) => (
             <span class={lowStock(state).includes(k) ? 'warn' : ''}>
               <StockIcon k={k} size={20} /> {state.stock[k]}
             </span>
@@ -497,7 +505,8 @@ export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { su
       <div class="muted center">
         {t('tips')}: {summary.tips} 🪙
       </div>
-      {summary.pastry > 0 && <div class="muted center">{t('pastryLine', { n: summary.pastry })}</div>}
+      {summary.desserts > 0 && <div class="muted center">{t('dessertsLine', { n: summary.desserts, c: summary.pastry })}</div>}
+      {(summary.walkNoDrink ?? 0) + (summary.walkNoMilk ?? 0) > 0 && <div class="muted small center">🚶 {t('walkoutsLine', { d: summary.walkNoDrink ?? 0, m: summary.walkNoMilk ?? 0 })}</div>}
       {summary.salary > 0 && <div class="center">👛 {t('salaryLine', { n: summary.salary })}</div>}
       {summary.happyMult && Math.abs(summary.happyMult - 1) > 0.005 && (
         <div class="muted small center">
@@ -616,7 +625,7 @@ export function OfficeTab() {
 }
 
 function StockSeg() {
-  const { state, me, send } = useGame();
+  const { state, me, send, now } = useGame();
   const [basket, setBasket] = useState<Partial<Record<StockId, number>>>({});
   const p = getPlayer(state, me.id)!;
   const disc = Math.round(Math.min(CONFIG.managerDiscountMax, level(p.managerXp) * CONFIG.managerDiscountPerLevel) * 100);
@@ -639,45 +648,69 @@ function StockSeg() {
         <button class="btn wide" onClick={() => setBasket(fillBasket(state, me.id))}>
           ✨ {t('fillToNorm')}
         </button>
-        {stockByUrgency(state).map((k) => {
-          const pack = STOCK_PACKS[k];
-          const cap = capacity(state, k);
-          const n = basket[k] ?? 0;
-          const have = state.stock[k];
-          const after = have + pack.amount * n;
-          const left = shiftsLeft(state, k);
-          const canMore = have + pack.amount * (n + 1) <= cap;
-          const note =
-            k === 'catFood' ? t('forHome') : left === Infinity ? t('notUsedToday') : left < 1 ? t('enoughForNone') : t('enoughFor', { n: Math.floor(left) });
-          return (
-            <div class="stock-row">
-              <span class="icon"><StockIcon k={k} size={36} /></span>
-              <div class="grow">
-                <div class="row">
-                  <b class="grow">{L(pack.name)}</b>
-                  <span class={`small ${left < 1 ? 'danger-text' : 'muted'}`}>{note}</span>
-                </div>
-                <div class="stock-bar">
-                  <div class="stock-have" style={{ width: `${(have / cap) * 100}%` }} />
-                  <div class="stock-add" style={{ width: `${((after - have) / cap) * 100}%` }} />
-                </div>
-                <div class="muted small num">
-                  {t('packLine', { have: n > 0 ? `${have}→${after}` : have, cap, amount: pack.amount, price: packPrice(state, me.id, k) })}
-                </div>
-              </div>
-              <div class="stepper">
-                <button disabled={n <= 0} onClick={() => change(k, -1)}>
-                  −
-                </button>
-                <b>{n}</b>
-                <button disabled={!canMore} onClick={() => change(k, 1)}>
-                  +
-                </button>
-              </div>
-            </div>
-          );
-        })}
       </div>
+      {STOCK_GROUPS.map((grp) => {
+        const items = stockByUrgency(state).filter((k) => STOCK_PACKS[k].group === grp.id && (grp.id !== 'dairy' || slotEffects(state).milks.includes(k.split('_')[1] as never)));
+        const desserts = grp.id === 'desserts';
+        const kinds = vitrineDesserts(state).length;
+        const maxKinds = slotEffects(state).dessertKinds;
+        const basketKinds = new Set([...vitrineDesserts(state), ...items.filter((k) => (basket[k] ?? 0) > 0).map((k) => k.slice(3))]).size;
+        return (
+          <details class="card stock-group" open={grp.id !== 'flavors' && grp.id !== 'desserts'}>
+            <summary class="card-title">
+              {L(grp.name)}
+              {desserts && <span class="muted small"> · {t('vitrineKinds', { n: kinds, max: maxKinds })}</span>}
+            </summary>
+            {items.map((k) => {
+              const pack = STOCK_PACKS[k];
+              const cap = capacity(state, k);
+              const n = basket[k] ?? 0;
+              const have = state.stock[k] ?? 0;
+              const after = have + pack.amount * n;
+              const left = shiftsLeft(state, k);
+              const newKind = desserts && have === 0 && n === 0 && basketKinds >= maxKinds;
+              const canMore = have + pack.amount * (n + 1) <= cap && !newKind;
+              const fresh = desserts ? state.dessertFresh?.[k.slice(3) as DessertId] : undefined;
+              const note = desserts
+                ? fresh && have > 0
+                  ? t('freshFor', { t: fmtDuration(fresh - now) })
+                  : `${DESSERTS[k.slice(3) as DessertId].price} 🪙`
+                : left === Infinity
+                  ? t('notUsedToday')
+                  : left < 1
+                    ? t('enoughForNone')
+                    : t('enoughFor', { n: Math.floor(left) });
+              return (
+                <div class="stock-row">
+                  <span class="icon">
+                    <StockIcon k={k} size={36} />
+                  </span>
+                  <div class="grow">
+                    <div class="row">
+                      <b class="grow">{L(pack.name)}</b>
+                      <span class={`small ${!desserts && left < 1 ? 'danger-text' : 'muted'}`}>{note}</span>
+                    </div>
+                    <div class="stock-bar">
+                      <div class="stock-have" style={{ width: `${(have / cap) * 100}%` }} />
+                      <div class="stock-add" style={{ width: `${((after - have) / cap) * 100}%` }} />
+                    </div>
+                    <div class="muted small num">{t('packLine', { have: n > 0 ? `${have}→${after}` : have, cap, amount: pack.amount, price: packPrice(state, me.id, k) })}</div>
+                  </div>
+                  <div class="stepper">
+                    <button disabled={n <= 0} onClick={() => change(k, -1)}>
+                      −
+                    </button>
+                    <b>{n}</b>
+                    <button disabled={!canMore} onClick={() => change(k, 1)}>
+                      +
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </details>
+        );
+      })}
       {packs > 0 && (
         <div class="basket-bar">
           <div class="grow">
@@ -696,8 +729,12 @@ function StockSeg() {
   );
 }
 
+function monthsLabel(m: number[]): string {
+  return m.map((x) => new Date(Date.UTC(2026, x - 1, 1)).toLocaleString(document.documentElement.lang === 'en' ? 'en' : 'ru', { month: 'short', timeZone: 'UTC' })).join(', ');
+}
+
 function MenuSeg() {
-  const { state, send } = useGame();
+  const { state, send, now } = useGame();
   const featured = todayMenu(state);
   const order = [...DRINK_ORDER].sort((a, b) => Number(state.menu.includes(b)) - Number(state.menu.includes(a)));
   return (
@@ -717,14 +754,18 @@ function MenuSeg() {
           const d = DRINKS[id];
           const has = state.menu.includes(id);
           const today = state.featured.includes(id);
+          const season = inSeason(id, now);
           return (
             <div class={`row item drink-row ${has ? '' : 'locked-row'}`}>
               <div class="grow">
                 <b>{L(d.name)}</b> <span class="muted small num">· {d.price} 🪙</span>
-                <div class="recipe">{d.recipe.map((c) => <CompIcon c={c} size={20} />)}</div>
+                {d.season && <span class={`tag ${season ? '' : 'off'}`}>{season ? t('seasonTag', { m: monthsLabel(d.season) }) : t('outOfSeason')}</span>}
+                <div class="recipe">
+                  <RecipeIcons drink={id} size={20} />
+                </div>
               </div>
               {has ? (
-                <button class={`chip ${today ? 'on' : ''}`} onClick={() => send({ type: 'toggleFeatured', id })}>
+                <button class={`chip ${today ? 'on' : ''}`} disabled={!today && !season} onClick={() => send({ type: 'toggleFeatured', id })}>
                   {today ? t('inToday') : t('addToday')}
                 </button>
               ) : (
@@ -758,7 +799,7 @@ function GrowthSeg() {
           return (
             <div class="slot-row">
               <div class="row">
-                <span class="icon">{def.icon}</span>
+                <span class="icon"><Img name={slotArt(slot, lvl)} size={40} /></span>
                 <div class="grow">
                   <b>{L(def.name)}</b>
                   <span class="level-dots">
@@ -813,36 +854,29 @@ function GrowthSeg() {
           );
         })}
       </div>
-      <div class="card">
-        <div class="card-title">🔧 {t('expansionTitle')}</div>
-        {UPGRADE_ORDER.map((id) => {
-          const u = UPGRADES[id];
-          const has = !!state.upgrades[id];
-          return (
-            <div class="row item">
-              <span class="icon">{u.icon}</span>
-              <div class="grow">
-                <b>{L(u.name)}</b>
-                <div class="muted small">{L(u.desc)}</div>
-              </div>
-              {has ? (
-                <span class="tag">{t('owned')}</span>
-              ) : (
-                <div class="buy">
-                  <button class="btn small" disabled={state.money < u.cost} onClick={() => send({ type: 'buyUpgrade', id })}>
-                    {CONFIG.managerTaskEnergy}⚡ · {u.cost} 🪙
-                  </button>
-                  {state.money < u.cost && <div class="small muted">{t('lacking', { n: u.cost - state.money })}</div>}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </>
   );
 }
 
+function slotArt(slot: CafeSlot, lvl: number): string {
+  if (slot === 'fridge') return `fridge-${lvl}`;
+  if (slot === 'storage') return 'storage';
+  return `${slot}-${lvl}`;
+}
+
+/** Какие аудитории покрывает меню дня: каждая приводит гостей. */
+function AudienceChips() {
+  const { state, now } = useGame();
+  const a = audiences(state, now);
+  const keys = ['black', 'milky', 'sweet', 'plant', 'desserts', 'season'] as const;
+  return (
+    <div class="chips aud-chips">
+      {keys.map((k) => (
+        <span class={`chip small ${a[k] ? 'on' : 'off'}`}>{t(`aud_${k}`)}</span>
+      ))}
+    </div>
+  );
+}
 
 // ---------- квартира ----------
 

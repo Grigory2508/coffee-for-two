@@ -1,4 +1,4 @@
-import type { CafeDecorSlot, CafeSlot, DecorSlot, Logo, DrinkId, MarketingId, RegularId, Role, RoomKind, StockId, UpgradeId } from './content.ts';
+import type { CafeDecorSlot, CafeSlot, DecorSlot, DessertId, Logo, DrinkId, MarketingId, MilkKind, RegularId, Role, RoomKind, StockId } from './content.ts';
 export type { Role };
 
 export type PlayerId = string;
@@ -35,17 +35,37 @@ export interface Player {
 
 export interface ShiftGuest {
   order: DrinkId;
+  /** Молоко или сливки какого вида (если в напитке есть молочное). */
+  milk: MilkKind;
+  /** Гость хотел другое молоко, а его нет — взял на обычном (оценка ниже). */
+  milkSwap?: MilkKind;
+  /** Своего напитка в меню дня не было — взял другой (оценка и чаевые ниже). */
+  substitute?: boolean;
+  dessert?: DessertId;
   patienceMs: number;
   arriveMs: number; // смещение от начала смены
   regular?: RegularId;
-  /** Берёт с собой: нужен бумажный стакан, за столик не садится. */
+  /** Берёт с собой: нужен бумажный стакан. */
   takeaway?: boolean;
 }
 
+/** Отрезок смены: доля длины и плотность гостей (пик > 1). */
+export interface ShiftSegment {
+  kind: 'morning' | 'day' | 'lunch' | 'evening';
+  share: number;
+  density: number;
+}
+
 export interface ShiftPlan {
+  /** 2 — пошаговая сборка, волны, десерты. Старые планы без поля не продолжаются. */
+  v?: 2;
   seed: number;
   startedAt: number;
+  durationMs?: number;
+  segments?: ShiftSegment[];
   guests: ShiftGuest[];
+  /** Ушли, не встав в очередь: своего напитка нет / нужного молока нет. */
+  walkouts?: { noDrink: number; noMilk: number };
   catInCafe: boolean;
   /** Устаревшее: столиков на смене больше нет. */
   tables?: number;
@@ -144,7 +164,8 @@ export type LogKind =
   | 'brand_changed'
   | 'gems_daily'
   | 'gems_bought'
-  | 'cafe_decor_bought';
+  | 'cafe_decor_bought'
+  | 'desserts_expired';
 
 export interface LogEntry {
   id: number;
@@ -172,11 +193,14 @@ export interface CafeState {
   menu: DrinkId[];
   /** Меню дня: что заказывают гости (подмножество menu, до CONFIG.menuSlots). */
   featured: DrinkId[];
-  upgrades: Partial<Record<UpgradeId, true>>;
-  /** Уровни кофейни 1..3: машина и витрина. */
+  /** Устаревшее: «Второй холодильник» заменён уровнями склада. */
+  upgrades: Record<string, true>;
+  /** Уровни кофейни 1..3: машина, холодильник, склад, витрина. */
   levels: Record<CafeSlot, number>;
   /** Декор зала кофейни (покупается из бюджета, обставляется как комнаты). */
   cafeDecor: { owned: string[]; placed: Partial<Record<CafeDecorSlot, string>> };
+  /** Когда списываются десерты на витрине (мс). */
+  dessertFresh: Partial<Record<DessertId, number>>;
   ratingRecent: number[]; // удовлетворённость 0..1 последних гостей
   regulars: Partial<Record<RegularId, { visits: number; seenBy: PlayerId[] }>>;
   activeShifts: Record<PlayerId, ShiftPlan>;
@@ -235,7 +259,6 @@ export type Command =
   | { type: 'acceptSwap' }
   | { type: 'declineSwap' }
   | { type: 'leaveCafe' }
-  | { type: 'buyUpgrade'; id: UpgradeId }
   | { type: 'upgradeSlot'; slot: CafeSlot }
   | { type: 'unlockDrink'; id: DrinkId }
   | { type: 'toggleFeatured'; id: DrinkId }

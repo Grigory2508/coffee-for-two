@@ -1,3 +1,4 @@
+import { baristaStep } from './barista.mjs';
 // Обход всех экранов для разбора интерфейса: скриншоты в размере экрана телефона.
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
@@ -38,27 +39,10 @@ async function playShift(page, label, shots = true) {
   let n = 0;
   for (let tick = 0; tick < 700; tick++) {
     if (await page.locator('.result').count()) break;
-    const dirty = page.locator('.table-spot.dirty');
-    if (await dirty.count()) await dirty.first().click({ timeout: 300 }).catch(() => {});
-    const ready = page.locator('.serve-btn:not([disabled])');
-    if (await ready.count()) {
-      await ready.first().click({ timeout: 300 }).catch(() => {});
-      if (shots && n === 1) await shot(page, `${label}-ready`);
-      n++;
-      continue;
-    }
-    const card = page.locator('.guest-card:not(.empty)').first();
-    if (await card.count()) {
-      if (await page.locator('.vessel-pick').count()) {
-        const away = await card.locator('.to-go.away').count();
-        await page.locator('.vessel', { hasText: away ? /Стакан/ : /Чашка/ }).click({ timeout: 300 }).catch(() => {});
-      } else {
-        const src = await card.locator('.ri:not(.done) img').first().getAttribute('src', { timeout: 300 }).catch(() => null);
-        if (src) await page.locator(`.station:has(img[src="${src}"])`).first().click({ timeout: 300 }).catch(() => {});
-      }
-      if (shots && n === 0 && tick === 14) await shot(page, `${label}-building`);
-    }
-    await page.waitForTimeout(110);
+    const r = await baristaStep(page);
+    if (r === 'served') n++;
+    if (shots && n === 1 && r === 'step' && tick % 7 === 0) await shot(page, `${label}-building`);
+    await page.waitForTimeout(90);
   }
   await page.waitForSelector('.result', { timeout: 90_000 });
   await page.waitForTimeout(900);
@@ -84,24 +68,21 @@ await playShift(a, '03-shift');
 await a.getByRole('button', { name: 'Назад' }).click();
 
 // богатое меню для проверки масштаба
-await mutate(a, "s.money = 9000; s.menu = ['espresso','americano','cappuccino','latte','icedLatte','cocoa','raf','cinnamonCap','flatWhite','caramelLatte','mocha']; s.featured = ['latte','icedLatte','raf','cinnamonCap','caramelLatte','mocha']; s.stock = { beans: 40, milk: 40, syrup: 30, cocoa: 20, cups: 40, catFood: 0 }; s.levels = { machine: 3, vitrine: 3 }; s.cafeDecor = { owned: ['c-lamps','c-pic-cup','c-shelf','c-sillplant','c-hanging','c-floorplant','c-succulent'], placed: { light: 'c-lamps', wall: 'c-pic-cup', shelf: 'c-shelf', window: 'c-sillplant', hanging: 'c-hanging', floor: 'c-floorplant', counter: 'c-succulent' } }; for (const p of s.players) { p.energy = 100; p.vitalsAt = Date.now(); }");
+await mutate(a, "s.money = 9000; s.menu = ['espresso','americano','cappuccino','latte','flatWhite','caramelLatte','mocha','rafClassic','rafCoconut','rafPumpkin','cortado','doppio']; s.featured = ['latte','flatWhite','mocha','rafClassic','rafCoconut','rafPumpkin']; for (const k of Object.keys(s.stock)) if (k !== 'catFood') s.stock[k] = 40; s.dessertFresh = {}; for (const d of ['croissant','cheesecake','cinnamonBun','brownie','medovik','eclair','macaron','tiramisu']) s.dessertFresh[d] = Date.now() + 86400000; for (const d of ['almondCroissant','painChoc','napoleon','carrotCake','redVelvet','kartoshka','muffin','cookie']) s.stock['ds_' + d] = 0; s.levels = { machine: 3, fridge: 3, storage: 3, vitrine: 2 }; s.cafeDecor = { owned: ['c-lamps','c-pic-cup','c-shelf','c-sillplant','c-hanging','c-floorplant','c-succulent'], placed: { light: 'c-lamps', wall: 'c-pic-cup', shelf: 'c-shelf', window: 'c-sillplant', hanging: 'c-hanging', floor: 'c-floorplant', counter: 'c-succulent' } }; for (const p of s.players) { p.energy = 100; p.vitalsAt = Date.now(); }");
 await a.reload();
 await a.waitForSelector('.hud');
 await shot(a, '04-barista-counter-rich');
 await a.getByRole('button', { name: /Встать за стойку/ }).click();
-await a.waitForTimeout(6000);
-// поставить посуду, собрать часть заказа и снять разрез
-{
-  const card = a.locator('.guest-card:not(.empty)').first();
-  await card.waitFor();
-  const away = await card.locator('.to-go.away').count();
-  await a.locator('.vessel', { hasText: away ? /Стакан/ : /Чашка/ }).click();
-  for (let k = 0; k < 2; k++) {
-    const src = await card.locator('.ri:not(.done) img').first().getAttribute('src');
-    if (src) await a.locator(`.station:has(img[src="${src}"])`).first().click();
-  }
-  await a.waitForTimeout(700);
+await a.waitForTimeout(3000);
+// собрать часть заказа и снять экран сборки, потом панель десертов
+for (let k = 0; k < 4; k++) {
+  await baristaStep(a);
+  await a.waitForTimeout(2200);
 }
+await shot(a, '05a-shift-steps');
+await a.locator('.panel-tabs .seg', { hasText: 'Десерты' }).click();
+await shot(a, '05b-shift-desserts');
+await a.locator('.panel-tabs .seg', { hasText: 'Напиток' }).click();
 await shot(a, '05-shift-rich');
 await playShift(a, '06-shift-rich', false);
 await shot(a, '06-result-rich');

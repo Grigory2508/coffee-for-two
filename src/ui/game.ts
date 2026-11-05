@@ -1,6 +1,6 @@
 import { createContext } from 'preact';
 import { useContext } from 'preact/hooks';
-import { CAFE_DECOR_BY_ID, CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, ROOMS, STOCK_PACKS, UPGRADES, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type UpgradeId, type CafeSlot } from '../core/content';
+import { CAFE_DECOR_BY_ID, CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, ROOMS, STOCK_PACKS, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type CafeSlot } from '../core/content';
 import type { ApplyResult } from '../core/engine';
 import type { CafeState, Command, LogEntry } from '../core/types';
 import { L, t } from '../i18n';
@@ -36,7 +36,6 @@ export function playerName(s: CafeState, id: string): string {
 
 function itemName(kind: string, id: string): string {
   if (kind === 'stock_bought') return L(STOCK_PACKS[id as StockId]?.name ?? { ru: id, en: id });
-  if (kind === 'upgrade_bought') return L(UPGRADES[id as UpgradeId]?.name ?? { ru: id, en: id });
   if (kind === 'slot_upgraded') {
     const [slot, lvl] = id.split(':');
     const sl = CAFE_SLOTS[slot as CafeSlot];

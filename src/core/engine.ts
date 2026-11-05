@@ -1,16 +1,26 @@
 // Ядро игры: чистые функции без DOM и сети. Один и тот же код работает
 // в браузере (локальный режим) и на сервере (Supabase Edge Function).
 import {
-  COMPONENTS,
   CONFIG,
   DECOR_BY_ID,
   DRINKS,
+  DRINK_LIST,
+  DESSERTS,
+  DESSERT_ORDER,
+  DESSERT_SHELF_MS,
+  FRIDGE_KINDS,
+  VITRINE_KINDS,
+  emptyStock,
+  inSeason,
+  recipeUsage,
+  type Audience,
+  type DessertId,
+  type MilkKind,
   MARKETING,
   REGULARS,
   REGULAR_ORDER,
   START_MENU,
   STOCK_PACKS,
-  UPGRADES,
   CAFE_SLOTS,
   SLOT_MAX,
   CAFE_DECOR_BY_ID,
@@ -41,6 +51,7 @@ import {
   type PlayerId,
   type ShiftGuest,
   type ShiftPlan,
+  type ShiftSegment,
   type BrandProposal,
   type HomeRoom,
 } from './types.ts';
@@ -106,7 +117,7 @@ export function freeRoles(s: CafeState): Role[] {
 }
 
 function shiftLive(plan: ShiftPlan | undefined, at: number): boolean {
-  return !!plan && at - plan.startedAt < CONFIG.shiftDurationMs + 60_000;
+  return !!plan && at - plan.startedAt < (plan.durationMs ?? CONFIG.shiftMaxMs) + 60_000;
 }
 
 /** Кто сейчас стоит за кассой (кроме actor). */
@@ -296,8 +307,8 @@ export function rating(s: CafeState): number | null {
 
 
 export function capacity(s: CafeState, item: StockId): number {
-  if (item === 'milk' && s.upgrades.fridge) return CONFIG.fridgeMilkCapacity;
-  return CONFIG.baseCapacity;
+  if (item === 'catFood') return 999;
+  return CONFIG.storageCapacity[slotLevel(s, 'storage') - 1];
 }
 
 export function packPrice(s: CafeState, actor: PlayerId, item: StockId): number {
@@ -315,7 +326,6 @@ export function slotLevel(s: CafeState, slot: CafeSlot): number {
 /** Что дают уровни кофейни — одно место для баланса (клиент и сервер). */
 export function slotEffects(s: CafeState) {
   const m = slotLevel(s, 'machine');
-  const v = slotLevel(s, 'vitrine');
   let decorPatience = 0;
   let decorSat = 0;
   for (const id of Object.values(s.cafeDecor?.placed ?? {})) {
@@ -325,55 +335,88 @@ export function slotEffects(s: CafeState) {
     decorSat += d.sat;
   }
   return {
+    /** Сколько эспрессо пролить сразу: на однорожковой двойной идёт в два пролива. */
     machineHeads: m >= 2 ? 2 : 1,
-    shotSpeed: m >= 3 ? 2 : 1, // во сколько раз быстрее варится эспрессо
-    tipMult: [1, 1.15, 1.25][m - 1],
-    pastry: [0, 12, 25][v - 1], // монет с гостя, который пьёт здесь
+    shotMs: [2000, 1600, 1000][m - 1],
+    steamMs: [1800, 1300, 800][m - 1],
+    whipMs: 1200,
+    waterMs: [1600, 1200, 500][m - 1],
+    milks: FRIDGE_KINDS[slotLevel(s, 'fridge') - 1],
+    dessertKinds: VITRINE_KINDS[slotLevel(s, 'vitrine') - 1],
     satBonus: decorSat,
     patienceMs: decorPatience,
   };
 }
 
-export function guestsPerShift(s: CafeState): number {
-  return CONFIG.shiftGuests + (s.marketing?.guests ?? 0);
+/** Виды молока и сливок в холодильнике. */
+export function availableMilks(s: CafeState): MilkKind[] {
+  return FRIDGE_KINDS[slotLevel(s, 'fridge') - 1];
 }
 
-export function recipeUsage(drink: DrinkId): Partial<Record<StockId, number>> {
-  const use: Partial<Record<StockId, number>> = {};
-  for (const c of DRINKS[drink].recipe) {
-    const st = COMPONENTS[c].uses;
-    if (st) use[st] = (use[st] ?? 0) + 1;
-  }
+/** Десерты, которые сейчас лежат на витрине. */
+export function vitrineDesserts(s: CafeState): DessertId[] {
+  return DESSERT_ORDER.filter((d) => (s.stock[`ds_${d}`] ?? 0) > 0);
+}
+
+/** Какие аудитории покрывает меню дня: от этого зависит, сколько гостей придёт. */
+export function audiences(s: CafeState, now = s.updatedAt) {
+  const menu = todayMenu(s, now);
+  const has = (a: Audience) => menu.some((d) => DRINKS[d].audience === a);
+  return {
+    black: has('black'),
+    milky: has('milky'),
+    sweet: has('sweet'),
+    plant: availableMilks(s).length > 1 && menu.some((d) => !!DRINKS[d].recipe.dairy),
+    desserts: vitrineDesserts(s).length > 0,
+    season: menu.some((d) => !!DRINKS[d].season),
+  };
+}
+
+export const AUDIENCE_GUESTS = { black: 1, milky: 2, sweet: 2, plant: 1, desserts: 1, season: 1 };
+
+export function guestsPerShift(s: CafeState, now = s.updatedAt): number {
+  const a = audiences(s, now);
+  let n = CONFIG.shiftBaseGuests;
+  for (const k of Object.keys(AUDIENCE_GUESTS) as (keyof typeof AUDIENCE_GUESTS)[]) if (a[k]) n += AUDIENCE_GUESTS[k];
+  n += s.marketing?.guests ?? 0;
+  return Math.min(CONFIG.shiftGuestCap, n);
+}
+
+export function canMake(stock: Record<StockId, number>, drink: DrinkId, milk: MilkKind = 'regular'): boolean {
+  const use = recipeUsage(drink, milk);
+  return (Object.keys(use) as StockId[]).every((k) => (stock[k] ?? 0) >= (use[k] ?? 0));
+}
+
+function guestUsage(g: ShiftGuest): Partial<Record<StockId, number>> {
+  const use = recipeUsage(g.order, g.milk ?? 'regular', g.takeaway);
+  if (g.dessert) use[`ds_${g.dessert}`] = (use[`ds_${g.dessert}`] ?? 0) + 1;
   return use;
 }
 
-export function canMake(stock: Record<StockId, number>, drink: DrinkId): boolean {
-  const use = recipeUsage(drink);
-  return (Object.keys(use) as StockId[]).every((k) => stock[k] >= (use[k] ?? 0));
+function consume(stock: Record<StockId, number>, g: ShiftGuest) {
+  const use = guestUsage(g);
+  for (const k of Object.keys(use) as StockId[]) stock[k] = (stock[k] ?? 0) - (use[k] ?? 0);
 }
 
-function consume(stock: Record<StockId, number>, drink: DrinkId, takeaway = false) {
-  const use = recipeUsage(drink);
-  for (const k of Object.keys(use) as StockId[]) stock[k] -= use[k] ?? 0;
-  if (takeaway) stock.cups -= 1;
-}
-
-/** Хватит ли склада на заказ гостя (с собой — ещё и стакан). */
+/** Хватит ли склада на заказ гостя (стакан с собой и десерт — тоже). */
 export function canServe(stock: Record<StockId, number>, g: ShiftGuest): boolean {
-  return canMake(stock, g.order) && (!g.takeaway || (stock.cups ?? 0) >= 1);
+  const use = guestUsage(g);
+  return (Object.keys(use) as StockId[]).every((k) => (stock[k] ?? 0) >= (use[k] ?? 0));
 }
 
-/** Совпадают ли собранные компоненты с рецептом (порядок не важен). */
-export function matchesRecipe(made: string[], drink: DrinkId): boolean {
-  const a = [...made].sort().join(',');
-  const b = [...DRINKS[drink].recipe].sort().join(',');
-  return a === b;
+/** Сколько платит гость: напиток + альтернативное молоко + десерт. */
+export function guestPrice(g: ShiftGuest): number {
+  const alt = DRINKS[g.order].recipe.dairy && g.milk && g.milk !== 'regular' ? CONFIG.altMilkPrice : 0;
+  return DRINKS[g.order].price + alt + (g.dessert ? DESSERTS[g.dessert].price : 0);
 }
 
-/** Меню дня; если оно пустое или устарело — всё открытое меню. */
-export function todayMenu(s: CafeState): DrinkId[] {
-  const f = (s.featured ?? []).filter((d) => s.menu.includes(d));
-  return f.length ? f : s.menu;
+/** Меню дня без несезонных напитков; если пусто — всё открытое меню в сезоне. */
+export function todayMenu(s: CafeState, now = s.updatedAt): DrinkId[] {
+  const ok = (d: DrinkId) => !!DRINKS[d] && s.menu.includes(d) && inSeason(d, now);
+  const f = (s.featured ?? []).filter(ok);
+  if (f.length) return f;
+  const all = s.menu.filter(ok);
+  return all.length ? all : s.menu.filter((d) => !!DRINKS[d]).slice(0, 1);
 }
 
 export function catInCafe(s: CafeState): boolean {
@@ -437,7 +480,8 @@ export function createCafe(opts: {
     menu: [...START_MENU],
     featured: [...START_MENU],
     upgrades: {},
-    levels: { machine: 1, vitrine: 1 },
+    levels: { machine: 1, fridge: 1, storage: 1, vitrine: 1 },
+    dessertFresh: {},
     cafeDecor: { owned: [], placed: {} },
     ratingRecent: [],
     regulars: {},
@@ -485,9 +529,10 @@ function npcShift(s: CafeState, at: number, covering: boolean) {
   let earned = 0;
   let served = 0;
   for (let i = 0; i < 4; i++) {
-    const order = pick(rnd, todayMenu(s));
-    if (!canMake(s.stock, order)) continue;
-    consume(s.stock, order);
+    const order = pick(rnd, todayMenu(s, at));
+    const g: ShiftGuest = { order, milk: 'regular', patienceMs: 0, arriveMs: 0 };
+    if (!canServe(s.stock, g)) continue;
+    consume(s.stock, g);
     earned += Math.round(DRINKS[order].price * CONFIG.npcEfficiency);
     served += 1;
     pushRating(s, 0.6);
@@ -501,7 +546,7 @@ function npcShift(s: CafeState, at: number, covering: boolean) {
 function npcRestock(s: CafeState, at: number, covering: boolean) {
   let spent = 0;
   const bought: string[] = [];
-  for (const item of ['beans', 'milk'] as StockId[]) {
+  for (const item of ['beans', 'milk_regular'] as StockId[]) {
     const pack = STOCK_PACKS[item];
     const cost = Math.round(pack.cost * CONFIG.npcMarkup);
     if (s.stock[item] < CONFIG.npcRestockBelow && s.money >= cost && s.stock[item] + pack.amount <= capacity(s, item)) {
@@ -555,10 +600,22 @@ export function advanceMut(s: CafeState, now: number) {
     }
   }
 
-  if ((s.stock.beans < 5 || s.stock.milk < 5) && now - s.alerts.stockLowAt > 6 * HOUR) {
+  if ((s.stock.beans < 5 || s.stock.milk_regular < 5) && now - s.alerts.stockLowAt > 6 * HOUR) {
     s.alerts.stockLowAt = now;
-    addLog(s, now, 'system', 'stock_low', { beans: s.stock.beans, milk: s.stock.milk });
+    addLog(s, now, 'system', 'stock_low', { beans: s.stock.beans, milk: s.stock.milk_regular });
   }
+
+  // Десерты лежат сутки: что не продали — списываем
+  const gone: string[] = [];
+  for (const d of DESSERT_ORDER) {
+    const until = s.dessertFresh?.[d];
+    if (until && until <= now) {
+      if ((s.stock[`ds_${d}`] ?? 0) > 0) gone.push(`${d}:${s.stock[`ds_${d}`]}`);
+      s.stock[`ds_${d}`] = 0;
+      delete s.dessertFresh[d];
+    }
+  }
+  if (gone.length) addLog(s, now, 'system', 'desserts_expired', { items: gone.join(',') });
 
   if (s.swap && now - s.swap.at > CONFIG.swapExpiresMs) s.swap = null;
   if (s.office && s.office.until <= now) s.office = null;
@@ -580,34 +637,165 @@ export function advance(s: CafeState, now: number): CafeState {
 
 // ---------- смена ----------
 
+/** Отрезки смены: пики и затишья. Иногда вечерний пик вместо утреннего. */
+export function shiftSegments(rnd: () => number): ShiftSegment[] {
+  if (rnd() < 0.25) {
+    return [
+      { kind: 'morning', share: 0.2, density: 0.7 },
+      { kind: 'day', share: 0.25, density: 0.5 },
+      { kind: 'lunch', share: 0.25, density: 2 },
+      { kind: 'evening', share: 0.3, density: 2 },
+    ];
+  }
+  return [
+    { kind: 'morning', share: 0.2, density: 2 },
+    { kind: 'day', share: 0.25, density: 0.5 },
+    { kind: 'lunch', share: 0.25, density: 2 },
+    { kind: 'evening', share: 0.3, density: 0.7 },
+  ];
+}
+
+export function shiftDuration(n: number): number {
+  return Math.max(CONFIG.shiftMinMs, Math.min(CONFIG.shiftMaxMs, n * CONFIG.shiftMsPerGuest));
+}
+
+/** Время прихода n гостей по волнам: в пиках плотнее, в затишьях реже. */
+export function waveArrivals(n: number, durationMs: number, segs: ShiftSegment[], rnd: () => number): number[] {
+  const window = durationMs * CONFIG.shiftLastArrival;
+  const w = segs.map((g) => g.share * g.density);
+  const sum = w.reduce((a, b) => a + b, 0);
+  const exact = w.map((x) => (x / sum) * n);
+  const counts = exact.map(Math.floor);
+  let left = n - counts.reduce((a, b) => a + b, 0);
+  const order = exact.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]);
+  for (let k = 0; left > 0; k++, left--) counts[order[k % order.length][1]] += 1;
+  const out: number[] = [];
+  let start = 0;
+  segs.forEach((g, i) => {
+    const len = g.share * window;
+    for (let j = 0; j < counts[i]; j++) out.push(Math.round(start + ((j + 0.15 + rnd() * 0.7) / counts[i]) * len));
+    start += len;
+  });
+  out.sort((a, b) => a - b);
+  if (out.length) out[0] = 0; // первый гость — сразу
+  return out;
+}
+
+const ALT_MILKS: [MilkKind, number][] = [
+  ['oat', 0.5],
+  ['lactoFree', 0.3],
+  ['coconut', 0.2],
+];
+
+function weighted<T>(rnd: () => number, items: [T, number][]): T {
+  const total = items.reduce((a, [, w]) => a + w, 0);
+  let r = rnd() * total;
+  for (const [x, w] of items) {
+    r -= w;
+    if (r <= 0) return x;
+  }
+  return items[items.length - 1][0];
+}
+
 export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): ShiftPlan {
   const seed = hashString(`${s.code}:${actor}:${s.version}:${now}`);
   const rnd = mulberry32(seed);
-  const n = guestsPerShift(s);
-  const span = CONFIG.shiftDurationMs - 25_000;
+  const menu = todayMenu(s, now);
+  const nominal = guestsPerShift(s, now);
+  const aud = audiences(s, now);
+  const milks = availableMilks(s);
   const patience = CONFIG.basePatienceMs + slotEffects(s).patienceMs;
+  const segs = shiftSegments(rnd);
+  const walkouts = { noDrink: 0, noMilk: 0 };
+  // Сколько десертов каждого вида ещё есть (чтобы гости не заказали больше, чем лежит)
+  const vit: Record<string, number> = {};
+  for (const d of DESSERT_ORDER) vit[d] = s.stock[`ds_${d}`] ?? 0;
+  const vitList = () => DESSERT_ORDER.filter((d) => vit[d] > 0);
+
+  // Кто пришёл: базовые гости — из покрытых аудиторий; «растительные» и «десертные» — сверху
+  const audW: [Audience, number][] = (['black', 'milky', 'sweet'] as Audience[]).filter((a) => aud[a]).map((a) => [a, AUDIENCE_GUESTS[a]]);
+  if (!audW.length) audW.push([DRINKS[menu[0]].audience, 1]);
+  const extraPlant = aud.plant ? AUDIENCE_GUESTS.plant : 0;
+  const extraDessert = aud.desserts ? AUDIENCE_GUESTS.desserts : 0;
   const guests: ShiftGuest[] = [];
-  for (let i = 0; i < n; i++) {
-    guests.push({
-      order: pick(rnd, todayMenu(s)),
-      patienceMs: patience + Math.round(rnd() * 4000),
-      // Первые трое приходят сразу — у стойки с начала смены очередь; дальше поток ровный
-      arriveMs: i < CONFIG.shiftQueueStart ? i * 600 : Math.round(((i - CONFIG.shiftQueueStart + 1) * span) / (n - CONFIG.shiftQueueStart + 1) + rnd() * 2500),
-    });
+  for (let i = 0; i < nominal; i++) {
+    const forcedPlant = i >= nominal - extraPlant - extraDessert && i < nominal - extraDessert;
+    const forcedDessert = i >= nominal - extraDessert;
+    let audience = weighted(rnd, audW);
+    if (forcedPlant && audience === 'black') audience = aud.milky ? 'milky' : 'sweet';
+    // Желаемый напиток — из всего каталога этой аудитории (в сезоне), по популярности
+    const pool = DRINK_LIST.filter((d) => d.audience === audience && inSeason(d.id, now) && (!forcedPlant || d.recipe.dairy));
+    const want = weighted(rnd, pool.map((d) => [d.id, d.pop] as [DrinkId, number]));
+    let order = want;
+    let substitute = false;
+    if (!menu.includes(want)) {
+      if (rnd() >= CONFIG.substituteShare) {
+        walkouts.noDrink += 1;
+        continue;
+      }
+      const same = menu.filter((d) => DRINKS[d].audience === audience);
+      const from = (same.length ? same : menu).filter((d) => !forcedPlant || DRINKS[d].recipe.dairy);
+      const list = from.length ? from : menu;
+      order = weighted(rnd, list.map((d) => [d, DRINKS[d].pop] as [DrinkId, number]));
+      substitute = true;
+    }
+    const g: ShiftGuest = { order, milk: 'regular', patienceMs: patience + Math.round(rnd() * 4000), arriveMs: 0 };
+    if (substitute) g.substitute = true;
+    if (DRINKS[order].recipe.dairy) {
+      let wantMilk: MilkKind = 'regular';
+      if (forcedPlant) wantMilk = weighted(rnd, ALT_MILKS.filter(([k]) => milks.includes(k)));
+      else if (rnd() < CONFIG.altMilkShare) wantMilk = weighted(rnd, ALT_MILKS);
+      if (milks.includes(wantMilk)) g.milk = wantMilk;
+      else {
+        if (rnd() < CONFIG.noMilkLeave) {
+          walkouts.noMilk += 1;
+          continue;
+        }
+        g.milkSwap = wantMilk;
+      }
+    }
+    // Десерт: любимый из 16; нет на витрине — часть берёт другой
+    const wantsDessert = forcedDessert || rnd() < CONFIG.dessertWant;
+    if (wantsDessert && vitList().length) {
+      const fav = weighted(rnd, DESSERT_ORDER.map((d) => [d, DESSERTS[d].pop] as [DessertId, number]));
+      let pickD: DessertId | undefined = vit[fav] > 0 ? fav : undefined;
+      if (!pickD && (forcedDessert || rnd() < CONFIG.dessertSubstitute)) pickD = weighted(rnd, vitList().map((d) => [d, DESSERTS[d].pop] as [DessertId, number]));
+      if (pickD) {
+        g.dessert = pickD;
+        vit[pickD] -= 1;
+      }
+    }
+    guests.push(g);
   }
+  // Порядок прихода перемешиваем, чтобы «растительные» и «десертные» не шли в конце
+  for (let i = guests.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [guests[i], guests[j]] = [guests[j], guests[i]];
+  }
+  const durationMs = shiftDuration(Math.max(1, guests.length));
+  const times = waveArrivals(guests.length, durationMs, segs, rnd);
+  guests.forEach((g, i) => (g.arriveMs = times[i]));
+
   // Постоянный гость: следующий по очереди незаконченной истории
   const pending = REGULAR_ORDER.filter((r) => (s.regulars[r]?.visits ?? 0) < REGULARS[r].beats.length);
-  if (pending.length && rnd() < 0.7) {
+  if (guests.length > 1 && pending.length && rnd() < 0.7) {
     const reg: RegularId = pending[Math.floor(rnd() * pending.length) % pending.length];
-    const k = 1 + Math.floor(rnd() * (n - 1));
+    const k = 1 + Math.floor(rnd() * (guests.length - 1));
     const fav = REGULARS[reg].favorite;
     guests[k].regular = reg;
-    guests[k].order = todayMenu(s).includes(fav) ? fav : guests[k].order;
+    if (menu.includes(fav)) {
+      guests[k].order = fav;
+      delete guests[k].substitute;
+      if (!DRINKS[fav].recipe.dairy) {
+        guests[k].milk = 'regular';
+        delete guests[k].milkSwap;
+      }
+    }
     guests[k].patienceMs += 4000; // постоянные гости терпеливее
   }
-  // С собой или здесь: постоянные гости всегда садятся за столик (их истории — за столиком)
+  // С собой или здесь: постоянные гости всегда остаются (их истории — за столиком)
   for (const g of guests) g.takeaway = !g.regular && rnd() < CONFIG.takeawayShare;
-  return { seed, startedAt: now, guests, catInCafe: catInCafe(s), tipBonus: s.marketing?.tipBonus ?? 0 };
+  return { v: 2, seed, startedAt: now, durationMs, segments: segs, guests, walkouts, catInCafe: catInCafe(s), tipBonus: s.marketing?.tipBonus ?? 0 };
 }
 
 export interface ShiftSummary {
@@ -620,18 +808,23 @@ export interface ShiftSummary {
   beats: { regular: RegularId; beat: number }[];
   noStock: number;
   cleanliness: number;
-  /** Выручка витрины: выпечка гостей, которые пьют здесь. */
+  /** Выручка с десертов. */
   pastry: number;
+  desserts: number;
+  /** Ушли, не встав в очередь: своего напитка нет в меню / нужного молока нет. */
+  walkNoDrink: number;
+  walkNoMilk: number;
   /** Зарплата каждого сотрудника с этой смены. */
   salary: number;
   /** Как счастье баристы сдвинуло оценки гостей (множитель). */
   happyMult: number;
 }
 
-export function tipFor(s: CafeState, p: Player, drink: DrinkId, waitMs: number, patienceMs: number, cat: boolean, tipBonus = 0): number {
-  const speed = Math.max(0, 1 - waitMs / patienceMs);
-  const mult = (1 + 0.05 * level(p.baristaXp)) * slotEffects(s).tipMult * (cat ? 1.1 : 1) * (1 + tipBonus);
-  return Math.round(DRINKS[drink].price * 0.25 * speed * mult);
+export function tipFor(p: Player, g: ShiftGuest, waitMs: number, cat: boolean, tipBonus = 0): number {
+  const speed = Math.max(0, 1 - waitMs / g.patienceMs);
+  const pair = g.dessert && DESSERTS[g.dessert].pair === g.order ? 1 + CONFIG.pairTipBonus : 1;
+  const mult = (1 + 0.05 * level(p.baristaXp)) * (cat ? 1.1 : 1) * (1 + tipBonus) * (g.substitute ? 0.7 : 1) * pair;
+  return Math.round(DRINKS[g.order].price * 0.25 * speed * mult);
 }
 
 function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: GuestResult[], cleanlinessIn: number | undefined, at: number): ShiftSummary {
@@ -647,9 +840,16 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
   // Командный бонус: в этот день работали хотя бы двое
   const activeToday = humans(s).filter((h) => h.id === actor || h.days.includes(today)).length;
   const coop = activeToday >= 2 ? 1.2 : 1;
-  const sum: ShiftSummary = { earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0, cleanliness, pastry: 0, salary: 0, happyMult: 1 };
+  const sum: ShiftSummary = {
+    earned: 0, tips: 0, served: 0, wrong: 0, left: 0, points: 0, beats: [], noStock: 0, cleanliness, pastry: 0, desserts: 0,
+    walkNoDrink: plan.walkouts?.noDrink ?? 0, walkNoMilk: plan.walkouts?.noMilk ?? 0, salary: 0, happyMult: 1,
+  };
+  const fx = slotEffects(s);
+  s.stats.guestsLost += sum.walkNoDrink + sum.walkNoMilk;
 
-  plan.guests.forEach((g, i) => {
+  plan.guests.forEach((g0, i) => {
+    const g: ShiftGuest = { ...g0, milk: g0.milk ?? 'regular' };
+    if (!DRINKS[g.order]) return;
     const r = byIdx.get(i);
     let outcome = r?.outcome ?? 'left';
     const wait = Math.max(0, Math.min(r?.waitMs ?? g.patienceMs, g.patienceMs));
@@ -659,17 +859,19 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
     }
     let sat = 0;
     if (outcome === 'served') {
-      consume(s.stock, g.order, g.takeaway);
-      const tip = tipFor(s, p, g.order, wait, g.patienceMs, plan.catInCafe, plan.tipBonus ?? 0);
-      sum.earned += DRINKS[g.order].price + tip;
+      consume(s.stock, g);
+      const tip = tipFor(p, g, wait, plan.catInCafe, plan.tipBonus ?? 0);
+      sum.earned += guestPrice(g) + tip;
       sum.tips += tip;
       sum.served += 1;
-      p.baristaXp += 10;
-      sat = Math.min(1, 1 - 0.5 * (wait / g.patienceMs) + slotEffects(s).satBonus);
-      if (!g.takeaway && slotEffects(s).pastry) {
-        sum.pastry += slotEffects(s).pastry;
-        sum.earned += slotEffects(s).pastry;
+      if (g.dessert) {
+        sum.desserts += 1;
+        sum.pastry += DESSERTS[g.dessert].price;
       }
+      p.baristaXp += 10;
+      sat = 1 - 0.5 * (wait / g.patienceMs) + fx.satBonus - (g.substitute ? 0.15 : 0) - (g.milkSwap ? 0.15 : 0);
+      if (g.dessert && DESSERTS[g.dessert].pair === g.order) sat += 0.05;
+      sat = Math.min(1, sat);
       if (g.regular) {
         const reg = (s.regulars[g.regular] ??= { visits: 0, seenBy: [] });
         if (reg.visits < REGULARS[g.regular].beats.length) {
@@ -680,8 +882,8 @@ function resolveShift(s: CafeState, actor: PlayerId, plan: ShiftPlan, results: G
         }
       }
     } else if (outcome === 'wrong') {
-      consume(s.stock, g.order, g.takeaway);
-      sum.earned += Math.round(DRINKS[g.order].price * 0.5);
+      consume(s.stock, g);
+      sum.earned += Math.round(guestPrice(g) * 0.5);
       sum.wrong += 1;
       p.baristaXp += 3;
       sat = 0.3;
@@ -995,7 +1197,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     }
     case 'startShift': {
       const prev = s.activeShifts[actor];
-      if (prev && at - prev.startedAt < CONFIG.shiftDurationMs + 60_000) {
+      if (prev && prev.v === 2 && at - prev.startedAt < (prev.durationMs ?? CONFIG.shiftMaxMs) + 60_000) {
         out.shiftPlan = prev; // возобновляем незавершённую смену без повторной траты сил
         return out;
       }
@@ -1034,33 +1236,26 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       let cost = 0;
       for (const [k, n] of entries) {
         const cap = capacity(s, k);
-        if (s.stock[k] + STOCK_PACKS[k].amount * n > cap) throw new GameError('capacity', { cap });
+        if ((s.stock[k] ?? 0) + STOCK_PACKS[k].amount * n > cap) throw new GameError('capacity', { cap });
         cost += packPrice(s, actor, k) * n;
       }
+      // Витрина держит ограниченное число видов десертов
+      const kinds = new Set(vitrineDesserts(s));
+      for (const [k] of entries) if (k.startsWith('ds_')) kinds.add(k.slice(3) as DessertId);
+      if (kinds.size > slotEffects(s).dessertKinds) throw new GameError('vitrine_full', { n: slotEffects(s).dessertKinds });
       requireMoney(s, cost);
       spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
       changeHappy(s, p, at, -CONFIG.managerHappyCost);
       managerTaskDone(s, p, at);
       s.money -= cost;
-      for (const [k, n] of entries) s.stock[k] += STOCK_PACKS[k].amount * n;
+      for (const [k, n] of entries) {
+        s.stock[k] = (s.stock[k] ?? 0) + STOCK_PACKS[k].amount * n;
+        // свежая партия десерта: лежит сутки с момента закупки
+        if (k.startsWith('ds_')) s.dessertFresh[k.slice(3) as DessertId] = at + DESSERT_SHELF_MS;
+      }
       p.managerXp += 10 * entries.length;
       markDay(p, at);
       addLog(s, at, actor, 'supply_run', { cost, items: entries.map(([k, n]) => `${k}:${n}`).join(',') });
-      break;
-    }
-    case 'buyUpgrade': {
-      const up = UPGRADES[cmd.id];
-      if (!up) throw new GameError('bad_item');
-      if (s.upgrades[cmd.id]) throw new GameError('owned');
-      requireMoney(s, up.cost);
-      spendEnergy(s, p, at, CONFIG.managerTaskEnergy);
-      changeHappy(s, p, at, -CONFIG.managerHappyCost);
-      managerTaskDone(s, p, at);
-      s.money -= up.cost;
-      s.upgrades[cmd.id] = true;
-      p.managerXp += 25;
-      markDay(p, at);
-      addLog(s, at, actor, 'upgrade_bought', { id: cmd.id });
       break;
     }
     case 'upgradeSlot': {
@@ -1111,6 +1306,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     }
     case 'toggleFeatured': {
       if (!s.menu.includes(cmd.id)) throw new GameError('bad_item');
+      if (!s.featured.includes(cmd.id) && !inSeason(cmd.id, at)) throw new GameError('out_of_season');
       if (s.featured.includes(cmd.id)) {
         if (s.featured.length <= 1) throw new GameError('menu_min');
         s.featured = s.featured.filter((d) => d !== cmd.id);
@@ -1405,7 +1601,7 @@ export function migrate(s: CafeState): CafeState {
   // Старые улучшения → уровни кофейни
   if (!x.levels) {
     const old = x.upgrades as Record<string, boolean | undefined>;
-    x.levels = { machine: old.machinePro ? 2 : 1, vitrine: 1, tables: old.terrace ? 3 : 1, decor: old.cozyHall ? 2 : 1 } as CafeState['levels'];
+    x.levels = { machine: old.machinePro ? 2 : 1, vitrine: 1, tables: old.terrace ? 3 : 1, decor: old.cozyHall ? 2 : 1 } as unknown as CafeState['levels'];
     delete old.machinePro;
     delete old.terrace;
     delete old.cozyHall;
@@ -1457,6 +1653,44 @@ export function migrate(s: CafeState): CafeState {
     ensureHome(x);
     delete x.room;
   }
+  migrateMenu(x);
   if (x.players.length === 2 && x.players[0].role === x.players[1].role) x.players[1].role = otherRole(x.players[0].role);
   return x;
+}
+
+/** Меню первой очереди (классика + рафы, склад по видам): переносим старые сохранения. */
+function migrateMenu(x: CafeState) {
+  const st = x.stock as Record<string, number>;
+  if (st.milk !== undefined || st.syrup !== undefined || st.cocoa !== undefined || st.milk_regular === undefined) {
+    const fresh = emptyStock();
+    fresh.beans = st.beans ?? 0;
+    fresh.cups = st.cups ?? 0;
+    fresh.catFood = st.catFood ?? 0;
+    fresh.milk_regular = st.milk ?? 0;
+    fresh.syr_vanilla = st.syrup ?? 0;
+    fresh.syr_caramel = 0;
+    fresh.syr_chocolate = st.cocoa ?? 0;
+    for (const k of Object.keys(fresh) as StockId[]) if (st[k] !== undefined && fresh[k] === 0) fresh[k] = st[k];
+    x.stock = fresh;
+  }
+  for (const k of Object.keys(emptyStock()) as StockId[]) if (x.stock[k] === undefined) x.stock[k] = 0;
+  // Напитки: раф → классический раф; айс-латте и какао убраны — их цена открытия возвращается в бюджет
+  const refund: Record<string, number> = { icedLatte: 450, cocoa: 400 };
+  const mapId = (d: string): DrinkId | null => (d === 'raf' ? 'rafClassic' : DRINKS[d as DrinkId] ? (d as DrinkId) : null);
+  const menu: DrinkId[] = [];
+  for (const d of x.menu as string[]) {
+    const m = mapId(d);
+    if (m && !menu.includes(m)) menu.push(m);
+    else if (!m) x.money += refund[d] ?? 0;
+  }
+  x.menu = menu.length ? menu : ['espresso', 'americano', 'cappuccino'];
+  x.featured = (x.featured as string[]).map(mapId).filter((d): d is DrinkId => !!d && x.menu.includes(d));
+  // Уровни: холодильник и склад; «Второй холодильник» → склад 2
+  const lv = x.levels as Partial<Record<CafeSlot, number>>;
+  if (!lv.fridge) lv.fridge = 1;
+  if (!lv.storage) lv.storage = x.upgrades?.fridge ? 2 : 1;
+  if (x.upgrades?.fridge) delete x.upgrades.fridge;
+  if (!x.dessertFresh) x.dessertFresh = {};
+  // Старые незавершённые смены (до пошаговой сборки) не продолжаются
+  for (const [id, plan] of Object.entries(x.activeShifts ?? {})) if (plan.v !== 2) delete x.activeShifts[id];
 }

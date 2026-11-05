@@ -1,136 +1,104 @@
-import { COMPONENTS, type ComponentId } from '../core/content';
+import type { Cup } from '../core/assembly';
+import { FLAVORS, MILKS, TOPPINGS } from '../core/content';
 
-// Чашка в разрезе: слои рецепта в реальных пропорциях (vol), снизу вверх по layer.
-// Ещё не налитое — полупрозрачный «призрак» с пунктирной границей: видно, сколько и чего не хватает.
+// Напиток в разрезе: посуда по шагу 1, внутри слои по шагам (кофе, вкус, молоко, пена, вода), сверху топпинг.
 
 interface Props {
-  recipe: ComponentId[];
-  /** Что уже в чашке. Без него рисуется готовый напиток. */
-  have?: ComponentId[];
-  /** Что готовится прямо сейчас, p — доля 0..1. */
-  brewing?: { c: ComponentId; p: number }[];
+  cup: Cup;
   size?: number;
   glow?: boolean;
-  /** Керамическая чашка (здесь) или бумажный стакан с крышкой (с собой). */
-  vessel?: 'mug' | 'paper';
+  /** Идёт таймер шага (0..1) — слой растёт. */
+  progress?: { step: string; p: number } | null;
 }
 
 const W = 64;
-const H = 76;
-// внутренность стакана: трапеция чуть сужается книзу
-const TOP = 10;
-const BOTTOM = 70;
-const IN_TOP_L = 9;
-const IN_TOP_R = 55;
-const IN_BOT_L = 13;
-const IN_BOT_R = 51;
-// бумажный стакан: заметнее сужается книзу, без ручки
-const PAPER = `M8 ${TOP + 4} L56 ${TOP + 4} L49 ${BOTTOM} L15 ${BOTTOM} Z`;
-const CLIP = `M${IN_TOP_L} ${TOP} L${IN_TOP_R} ${TOP} L${IN_BOT_R} ${BOTTOM - 4} Q${IN_BOT_R} ${BOTTOM} ${IN_BOT_R - 4} ${BOTTOM} L${IN_BOT_L + 4} ${BOTTOM} Q${IN_BOT_L} ${BOTTOM} ${IN_BOT_L} ${BOTTOM - 4} Z`;
+const H = 80;
+
+// Внутренность посуды: [верх-лево, верх-право, низ-лево, низ-право, верх, низ]
+const SHAPES = {
+  small: { l: 18, r: 46, bl: 21, br: 43, top: 46, bottom: 70, handle: true, saucer: true },
+  capCup: { l: 10, r: 54, bl: 16, br: 48, top: 36, bottom: 70, handle: true, saucer: true },
+  tall: { l: 14, r: 50, bl: 17, br: 47, top: 8, bottom: 74, handle: false, saucer: false },
+  paper: { l: 12, r: 52, bl: 18, br: 46, top: 12, bottom: 74, handle: false, saucer: false },
+};
 
 let uid = 0;
 
-export function CupSection({ recipe, have, brewing = [], size = 64, glow, vessel = 'mug' }: Props) {
-  const paper = vessel === 'paper';
-  const shape = paper ? PAPER : CLIP;
-  const id = `cup${++uid}`;
-  const filled = have ?? recipe;
-  // какие компоненты рецепта уже есть (мультимножество)
-  const pool = [...filled];
-  const brewPool = [...brewing];
-  const parts = [...recipe]
-    .sort((a, b) => COMPONENTS[a].layer - COMPONENTS[b].layer)
-    .map((c) => {
-      const k = pool.indexOf(c);
-      if (k >= 0) {
-        pool.splice(k, 1);
-        return { c, p: 1 };
-      }
-      const b = brewPool.findIndex((x) => x.c === c);
-      if (b >= 0) {
-        const p = brewPool[b].p;
-        brewPool.splice(b, 1);
-        return { c, p };
-      }
-      return { c, p: 0 };
-    });
+const COFFEE = '#4a2a17';
+const BASE_VOL = { espresso: 1, double: 1.8, ristretto: 0.6, lungo: 1.6 };
 
-  const total = recipe.reduce((s, c) => s + COMPONENTS[c].vol, 0);
-  const cap = Math.max(total, 3) / 0.86;
-  const unit = (BOTTOM - TOP) / cap;
-
-  // Слои жидкостей: призрак на полную высоту, налитое — по доле p
-  let y = BOTTOM;
-  const layers: { c: ComponentId; y0: number; h: number; p: number }[] = [];
-  for (const part of parts) {
-    const v = COMPONENTS[part.c].vol;
-    if (!v) continue;
-    const h = v * unit;
-    layers.push({ c: part.c, y0: y - h, h, p: part.p });
-    y -= h;
+export function CupView({ cup, size = 64, glow, progress }: Props) {
+  if (!cup.vessel) {
+    return (
+      <svg class="cup-section empty" viewBox={`0 0 ${W} ${H}`} width={size} height={(size * H) / W} aria-hidden="true">
+        <rect x="8" y="20" width="48" height="54" rx="10" fill="none" stroke="#c9b59b" stroke-width="2" stroke-dasharray="4 4" />
+      </svg>
+    );
   }
+  const sh = SHAPES[cup.vessel];
+  const id = `cup${++uid}`;
+  const shape = `M${sh.l} ${sh.top} L${sh.r} ${sh.top} L${sh.br} ${sh.bottom - 4} Q${sh.br} ${sh.bottom} ${sh.br - 4} ${sh.bottom} L${sh.bl + 4} ${sh.bottom} Q${sh.bl} ${sh.bottom} ${sh.bl} ${sh.bottom - 4} Z`;
+  const p = (step: string) => (progress && progress.step === step ? progress.p : 1);
+
+  // Объёмы в условных долях; высота посуды — 4.2 доли
+  const layers: { color: string; vol: number; kind?: 'foam' | 'cream' }[] = [];
+  if (cup.flavor) layers.push({ color: FLAVORS[cup.flavor].color, vol: 0.35 });
+  const whipped = cup.whip && cup.dairy;
+  if (cup.base && !whipped) layers.push({ color: COFFEE, vol: BASE_VOL[cup.base] * p('base') });
+  if (cup.water) layers.push({ color: '#8a5a36', vol: 1.6 * p('water') });
+  if (cup.dairy && !whipped) {
+    const milk = cup.dairy.type === 'milk' ? MILKS[cup.dairy.kind].color : '#fffaf2';
+    const big = cup.vessel === 'tall' || cup.vessel === 'paper' ? 2.2 : cup.vessel === 'capCup' ? 1.6 : 0.8;
+    const foam = cup.texture === 'thick' ? 0.9 : cup.texture === 'thin' ? 0.35 : 0;
+    layers.push({ color: milk, vol: big * (cup.texture ? p('texture') : 1) });
+    if (foam) layers.push({ color: '#fffaf0', vol: foam * p('texture'), kind: 'foam' });
+  }
+  // Раф: эспрессо, вкус и сливки взбиты вместе — один светлый кофейный слой
+  if (whipped) layers.push({ color: '#d9b892', vol: 3.2 * p('whip') });
+
+  const unit = (sh.bottom - sh.top) / 4.2;
+  let y = sh.bottom;
+  const rects = layers.map((l) => {
+    const h = Math.min(y - sh.top, l.vol * unit);
+    const r = { ...l, y: y - h, h };
+    y -= h;
+    return r;
+  });
   const surface = y;
-  const sprinkles = parts.filter((x) => COMPONENTS[x.c].kind === 'sprinkle');
-  const ice = parts.filter((x) => COMPONENTS[x.c].kind === 'ice');
+  const top = cup.topping;
 
   return (
-    <svg class={`cup-section ${glow ? 'glow' : ''}`} viewBox={`0 0 ${W} ${H}`} width={size} height={(size * H) / W} role="img" aria-label={recipe.map((c) => COMPONENTS[c].icon).join(' ')}>
+    <svg class={`cup-section ${glow ? 'glow' : ''}`} viewBox={`0 0 ${W} ${H}`} width={size} height={(size * H) / W} aria-hidden="true">
       <defs>
         <clipPath id={id}>
           <path d={shape} />
         </clipPath>
       </defs>
-      {/* ручка у чашки */}
-      {!paper && <path d={`M${IN_TOP_R + 2} 24 q12 2 10 16 q-2 12 -12 12`} fill="none" stroke="#d9c6ae" stroke-width="4" stroke-linecap="round" />}
-      <path d={shape} fill={paper ? '#fbf6ee' : '#f6f3ee'} />
+      {sh.saucer && <ellipse cx="32" cy={sh.bottom + 3} rx={cup.vessel === 'small' ? 20 : 27} ry="3.5" fill="#f3eee6" stroke="#c9b59b" stroke-width="1.2" />}
+      {sh.handle && <path d={`M${sh.r - 1} ${sh.top + 6} q${cup.vessel === 'small' ? 9 : 12} 2 ${cup.vessel === 'small' ? 7 : 10} ${cup.vessel === 'small' ? 10 : 14} q-2 7 -9 8`} fill="none" stroke="#d9c6ae" stroke-width="3.5" stroke-linecap="round" />}
+      <path d={shape} fill={cup.vessel === 'tall' ? '#eef7fb' : cup.vessel === 'paper' ? '#fbf6ee' : '#f6f3ee'} />
       <g clip-path={`url(#${id})`}>
-        {layers.map((l) => {
-          const comp = COMPONENTS[l.c];
-          const ghost = (
-            <rect x="0" y={l.y0} width={W} height={l.h} fill={comp.color} opacity="0.16" />
-          );
-          const fh = l.h * l.p;
-          const fy = l.y0 + l.h - fh;
-          return (
-            <g>
-              {ghost}
-              {l.p < 1 && <line x1="0" x2={W} y1={l.y0} y2={l.y0} stroke={comp.color === '#ffffff' || comp.color === '#fffaf0' ? '#c9b59b' : comp.color} stroke-width="0.8" stroke-dasharray="2 2" opacity="0.9" />}
-              {fh > 0 && <rect class="layer" x="0" y={fy} width={W} height={fh + 0.4} fill={comp.color} />}
-              {fh > 0 && <line x1="0" x2={W} y1={fy} y2={fy} stroke="#00000022" stroke-width="0.7" />}
-              {fh > 0 && comp.kind === 'foam' && [10, 20, 30, 40, 50].map((x, i) => <circle cx={x + (i % 2) * 3} cy={fy + 2.5} r="2.6" fill={comp.color} stroke="#eadcc6" stroke-width="0.5" />)}
-              {fh > 0 && comp.kind === 'cream' && <path d={`M0 ${fy + 3} q8 -7 16 0 q8 -7 16 0 q8 -7 16 0 q8 -7 16 0 V${fy + 4} H0Z`} fill="#fff" stroke="#efe4d4" stroke-width="0.6" />}
-            </g>
-          );
-        })}
-        {/* лёд — кубики в напитке */}
-        {ice.map((part) =>
+        {rects.map((r) => (
+          <g>
+            <rect class="layer" x="0" y={r.y} width={W} height={r.h + 0.4} fill={r.color} />
+            {r.kind === 'foam' && [16, 24, 32, 40, 48].map((x, i) => <circle cx={x + (i % 2) * 2} cy={r.y + 1.5} r="2.2" fill="#fffaf0" stroke="#eadcc6" stroke-width="0.5" />)}
+          </g>
+        ))}
+        {cup.ice &&
           [
-            [18, surface + 4],
-            [33, surface + 9],
-            [24, surface + 16],
-          ].map(([x, yy]) => (
-            <rect x={x} y={Math.min(yy, BOTTOM - 12)} width="11" height="10" rx="2.5" fill="#eaf7ff" stroke="#9fd0ea" stroke-width="1" opacity={part.p ? 0.92 : 0.25} />
-          )),
-        )}
-        {/* корица и прочая посыпка — точки по поверхности */}
-        {sprinkles.map((part) =>
-          [12, 17, 23, 28, 34, 39, 45, 50].map((x, i) => <circle cx={x} cy={surface + 1.6 + (i % 3) * 0.9} r="1.1" fill={COMPONENTS[part.c].color} opacity={part.p ? 1 : 0.25} />),
-        )}
+            [20, 0],
+            [32, 8],
+            [24, 18],
+            [36, 26],
+          ].map(([x, dy]) => <rect x={x} y={Math.min(sh.top + 6 + dy, sh.bottom - 12)} width="10" height="9" rx="2.5" fill="#eaf7ff" stroke="#9fd0ea" stroke-width="1" opacity="0.9" />)}
+        {top === 'cinnamon' && [18, 23, 28, 33, 38, 43, 47].map((x, i) => <circle cx={x} cy={surface + 1.4 + (i % 3) * 0.8} r="1.1" fill={TOPPINGS.cinnamon.color} />)}
+        {top === 'halvaCrumb' && [19, 25, 31, 37, 44].map((x, i) => <rect x={x} y={surface + (i % 2)} width="3" height="2.4" rx="0.8" fill="#d8c3a0" stroke="#b39a74" stroke-width="0.4" />)}
+        {top === 'lemon' && <path d={`M22 ${surface + 2} q6 -3 10 0 q4 3 9 -1`} stroke="#e8c63a" stroke-width="2" fill="none" stroke-linecap="round" />}
       </g>
-      {paper ? (
-        <>
-          {/* картонная манжета и крышка поверх разреза */}
-          <path d={`M10.5 40 L53.5 40 L51.6 54 L12.4 54 Z`} fill="#b07a4a" opacity="0.55" />
-          <path d={shape} fill="none" stroke="#b9a184" stroke-width="1.6" />
-          <rect x="5" y={TOP - 1} width="54" height="6" rx="3" fill="#fff" stroke="#b9a184" stroke-width="1.3" />
-          <rect x="20" y={TOP - 5} width="24" height="5" rx="2" fill="#fff" stroke="#b9a184" stroke-width="1.2" />
-        </>
-      ) : (
-        <>
-          <path d={CLIP} fill="none" stroke="#c9b59b" stroke-width="1.6" />
-          <path d={`M${IN_TOP_L + 5} ${TOP + 6} L${IN_BOT_L + 4} ${BOTTOM - 10}`} stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity="0.7" />
-        </>
-      )}
+      {top === 'whipped' && <path d={`M${sh.l + 2} ${surface} q4 -9 10 -4 q4 -10 10 -3 q6 -9 10 0 q5 -4 ${sh.r - sh.l - 34} 4 Z`} fill="#fff" stroke="#e7dccb" stroke-width="0.8" />}
+      {cup.vessel === 'paper' && <path d={`M${sh.l + 2} ${sh.top + 30} L${sh.r - 2} ${sh.top + 30} L${sh.r - 3.5} ${sh.top + 44} L${sh.l + 3.5} ${sh.top + 44} Z`} fill="#b07a4a" opacity="0.5" />}
+      <path d={shape} fill="none" stroke={cup.vessel === 'paper' ? '#b9a184' : '#c9b59b'} stroke-width="1.6" />
+      {cup.vessel === 'tall' && <path d={`M${sh.l + 4} ${sh.top + 6} L${sh.bl + 3} ${sh.bottom - 8}`} stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity="0.8" />}
     </svg>
   );
 }

@@ -1,3 +1,4 @@
+import { baristaStep } from './barista.mjs';
 // Сквозной прогон в Playwright: команда из трёх игроков во вкладках одного браузера.
 // Запуск: npm run build && npx vite preview --port 4173 & node scripts/e2e.mjs
 import { chromium } from 'playwright';
@@ -45,26 +46,9 @@ async function finishShift(page, label) {
   let served = 0;
   for (let tick = 0; tick < 800; tick++) {
     if (await page.locator('.result').count()) break;
-    const dirty = page.locator('.table-spot.dirty');
-    if (await dirty.count()) await dirty.first().click({ timeout: 300 }).catch(() => {});
-    const ready = page.locator('.serve-btn:not([disabled])');
-    if (await ready.count()) {
-      await ready.first().click({ timeout: 300 }).catch(() => {});
-      if (++served === 1) await shot(page, `${label}-shift`);
-      continue;
-    }
-    const card = page.locator('.guest-card:not(.empty)').first();
-    if (await card.count()) {
-      if (await page.locator('.vessel-pick').count()) {
-        const away = await card.locator('.to-go.away').count();
-        await page.locator('.vessel', { hasText: away ? /Стакан/ : /Чашка/ }).click({ timeout: 300 }).catch(() => {});
-      } else {
-        const src = await card.locator('.ri:not(.done) img').first().getAttribute('src', { timeout: 300 }).catch(() => null);
-        if (src) await page.locator(`.station:has(img[src="${src}"])`).first().click({ timeout: 300 }).catch(() => {});
-      }
-      
-    }
-    await page.waitForTimeout(110);
+    const r = await baristaStep(page);
+    if (r === 'step' && ++served === 4) await shot(page, `${label}-shift`);
+    await page.waitForTimeout(90);
   }
   await page.waitForSelector('.result', { timeout: 90_000 });
   await shot(page, `${label}-result`);
