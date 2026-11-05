@@ -11,7 +11,7 @@ for (const v of [0, 1, 2]) {
   await p.evaluate((v) => {
     const k = Object.keys(localStorage).find((x) => x.startsWith('cft:cafe:'));
     const s = JSON.parse(localStorage.getItem(k));
-    const slots = { hall: ['sofa','table','lamp','wall','window','rug','plant','shelf'], kitchen: ['stove','fridge','dining','coffeemaker','shelf','plant','window'], bedroom: ['bed','desk','wardrobe','lamp','wall','rug','plant'] };
+    const slots = { hall: ['sofa','table','lamp','wall','window','rug','plant','shelf'], kitchen: ['stove','fridge','dining','coffeemaker','shelf','plant','window'], bedroom: ['bed','desk','wardrobe','lamp','wall','window','rug','plant'] };
     for (const r of Object.values(s.home.rooms)) { r.open = true; r.placed = {}; for (const sl of slots[r.kind]) { r.owned.push(`${sl}-${v}`); r.placed[sl] = `${sl}-${v}`; } }
     s.version += 1; localStorage.setItem(k, JSON.stringify(s));
   }, v);
@@ -19,8 +19,14 @@ for (const v of [0, 1, 2]) {
   const ok = p.getByRole('button', { name: 'Понятно' }); if (await ok.count()) await ok.click();
   await p.locator('.tab-btn', { hasText: 'Квартира' }).click();
   await p.waitForTimeout(500);
+  for (const [i, name] of [[0, 'Зал'], [1, 'Кухня']]) {
+    await p.locator('.room-dot', { hasText: name }).click();
+    await p.waitForTimeout(600);
+    await p.locator('.room-page').nth(i).locator('.room-scene').screenshot({ path: `/tmp/prev/room-${v}-${i}.png` }).catch((e) => console.log(e.message));
+  }
   await p.locator('.room-dot', { hasText: 'Моя комната' }).click();
   await p.waitForTimeout(700);
+  await p.evaluate(() => window.scrollTo(0, 0));
   await p.locator('.room-page').nth(2).locator('.room-scene').screenshot({ path: `/tmp/prev/bed-${v}.png` }).catch((e) => console.log(e.message));
 }
 await browser.close();
