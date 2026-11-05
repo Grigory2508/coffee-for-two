@@ -324,7 +324,7 @@ export const DECOR_BY_ID: Record<string, DecorItem> = Object.fromEntries(DECOR.m
 
 // ---------- обои ----------
 
-export type WallPattern = 'plain' | 'stripes' | 'dots' | 'flowers' | 'diamonds' | 'herringbone' | 'panel' | 'check' | 'tiles';
+export type WallPattern = 'plain' | 'stripes' | 'dots' | 'flowers' | 'diamonds' | 'herringbone' | 'panel' | 'check' | 'tiles' | 'brick';
 
 export interface Wallpaper {
   id: string;
@@ -651,3 +651,117 @@ export const CAFE_DECOR: CafeDecorItem[] = [
   { id: 'c-succulent', slot: 'counter', name: { ru: 'Суккулент', en: 'Succulent' }, cost: 200, patienceMs: 500, sat: 0.01, art: [{ name: 'decor-succulent', x: 46, w: 4, bottom: COUNTER_Y }] },
 ];
 export const CAFE_DECOR_BY_ID: Record<string, CafeDecorItem> = Object.fromEntries(CAFE_DECOR.map((d) => [d.id, d]));
+
+// ---------- гостевой зал: обставляется как комнаты, из бюджета кофейни ----------
+// Старый декор (CAFE_DECOR) остаётся только для миграции сохранений.
+
+export type HallSlot = 'window1' | 'window2' | 'table1' | 'table2' | 'table3' | 'chandelier' | 'picture' | 'sconces' | 'poster' | 'shelf' | 'plant';
+export const HALL_SLOTS: Record<HallSlot, L10n> = {
+  window1: { ru: 'Окно у двери', en: 'Window by the door' },
+  window2: { ru: 'Второе окно', en: 'Second window' },
+  table1: { ru: 'Столик у окна', en: 'Window table' },
+  table2: { ru: 'Столик в центре', en: 'Centre table' },
+  table3: { ru: 'Столик в углу', en: 'Corner table' },
+  chandelier: { ru: 'Люстра', en: 'Chandelier' },
+  picture: { ru: 'Картина', en: 'Painting' },
+  sconces: { ru: 'Бра', en: 'Sconces' },
+  poster: { ru: 'Постер', en: 'Poster' },
+  shelf: { ru: 'Полка', en: 'Shelf' },
+  plant: { ru: 'Растение', en: 'Plant' },
+};
+export const HALL_ORDER: HallSlot[] = ['table1', 'table2', 'table3', 'window1', 'window2', 'chandelier', 'sconces', 'picture', 'poster', 'shelf', 'plant'];
+
+/** Вид предмета: art — спрайт без номера уровня (hall-table → hall-table-0..2). */
+type HallKind = 'window' | 'table' | 'light' | 'pic' | 'sconce' | 'poster' | 'shelf' | 'plant';
+const HALL_KIND: Record<HallSlot, HallKind> = {
+  window1: 'window', window2: 'window', table1: 'table', table2: 'table', table3: 'table',
+  chandelier: 'light', picture: 'pic', sconces: 'sconce', poster: 'poster', shelf: 'shelf', plant: 'plant',
+};
+const HALL_NAMES: Record<HallKind, [L10n, L10n, L10n]> = {
+  window: [{ ru: 'Обычное окно', en: 'Plain window' }, { ru: 'Арочное окно', en: 'Arched window' }, { ru: 'Витраж', en: 'Stained glass' }],
+  table: [{ ru: 'Простой столик', en: 'Simple table' }, { ru: 'Уютный столик', en: 'Cozy table' }, { ru: 'Дизайнерский столик', en: 'Designer table' }],
+  light: [{ ru: 'Абажур', en: 'Pendant' }, { ru: 'Плетёная люстра', en: 'Wicker chandelier' }, { ru: 'Латунная люстра', en: 'Brass chandelier' }],
+  pic: [{ ru: 'Акварель', en: 'Watercolour' }, { ru: 'Натюрморт', en: 'Still life' }, { ru: 'Картина в золотой раме', en: 'Gilt-framed painting' }],
+  sconce: [{ ru: 'Простые бра', en: 'Simple sconces' }, { ru: 'Бра с абажуром', en: 'Shaded sconces' }, { ru: 'Латунные бра', en: 'Brass sconces' }],
+  poster: [{ ru: 'Постер с чашкой', en: 'Cup poster' }, { ru: 'Афиша кофейни', en: 'Café poster' }, { ru: 'Винтажная реклама', en: 'Vintage ad' }],
+  shelf: [{ ru: 'Полка с банками', en: 'Jar shelf' }, { ru: 'Полка с кофе', en: 'Coffee shelf' }, { ru: 'Витринная полка', en: 'Display shelf' }],
+  plant: [{ ru: 'Фикус', en: 'Ficus' }, { ru: 'Монстера', en: 'Monstera' }, { ru: 'Оливковое дерево', en: 'Olive tree' }],
+};
+
+export interface HallItem {
+  id: string;
+  slot: HallSlot;
+  tier: 0 | 1 | 2;
+  name: L10n;
+  cost: number;
+  /** +мс терпения гостей. */
+  patienceMs: number;
+  /** +к удовлетворённости гостей. */
+  sat: number;
+  /** Спрайт: public/art/<art>.webp */
+  art: string;
+}
+
+const HALL_COST: Record<HallKind, [number, number, number]> = {
+  window: [0, 600, 1500], table: [300, 700, 1400], light: [250, 600, 1200], pic: [150, 400, 900], sconce: [200, 450, 900], poster: [100, 300, 700], shelf: [200, 450, 900], plant: [150, 400, 900],
+};
+export const HALL_ITEMS: HallItem[] = (Object.keys(HALL_KIND) as HallSlot[]).flatMap((slot) =>
+  ([0, 1, 2] as const).map((tier) => {
+    const kind = HALL_KIND[slot];
+    const table = kind === 'table';
+    const win = kind === 'window';
+    return {
+      id: `${slot}-${tier}`,
+      slot,
+      tier,
+      name: HALL_NAMES[kind][tier],
+      cost: HALL_COST[kind][tier],
+      patienceMs: win ? [0, 300, 600][tier] : table ? [500, 900, 1400][tier] : [200, 400, 700][tier],
+      sat: win ? [0, 0.005, 0.01][tier] : table ? [0.005, 0.01, 0.015][tier] : [0.003, 0.006, 0.009][tier],
+      art: `hall-${kind}-${tier}`,
+    };
+  }),
+);
+export const HALL_BY_ID: Record<string, HallItem> = Object.fromEntries(HALL_ITEMS.map((d) => [d.id, d]));
+/** С чем открывается зал: два обычных окна и один простой столик. */
+export const HALL_START: Partial<Record<HallSlot, string>> = { window1: 'window1-0', window2: 'window2-0', table1: 'table1-0' };
+
+/** Обои и пол зала: первая покупка из бюджета, дальше переключать бесплатно; немного довольства гостей. */
+export interface HallSurface {
+  id: string;
+  name: L10n;
+  tier: 0 | 1 | 2;
+  cost: number;
+  sat: number;
+  def?: true;
+}
+const HW = (id: string, ru: string, en: string, tier: 0 | 1 | 2, pattern: WallPattern, base: string, ink: string, accent?: string, def?: true): Wallpaper & HallSurface => ({
+  id, name: { ru, en }, tier, cost: def ? 0 : [200, 450, 900][tier], joy: 0, sat: def ? 0 : [0.005, 0.01, 0.015][tier], pattern, base, ink, accent, rooms: [], def,
+});
+export const HALL_WALLS: (Wallpaper & HallSurface)[] = [
+  HW('hw-latte', 'Латте', 'Latte', 0, 'plain', '#efe2cc', '#e3d2b5', undefined, true),
+  HW('hw-cream-stripe', 'Кремовая полоска', 'Cream stripes', 0, 'stripes', '#f7ead2', '#ecdab9'),
+  HW('hw-terracotta', 'Терракота', 'Terracotta', 1, 'plain', '#e8c4ae', '#dcb096'),
+  HW('hw-green-panel', 'Зелёные панели', 'Green panels', 1, 'panel', '#f1ead9', '#6f8f74', '#9fb89a'),
+  HW('hw-brick', 'Кирпич', 'Brick', 2, 'brick', '#c98b70', '#e8d6c4'),
+  HW('hw-navy-panel', 'Синие панели', 'Navy panels', 2, 'panel', '#efe6d4', '#3f5a73', '#7f97ad'),
+];
+export const HALL_FLOORS: HallSurface[] = [
+  { id: 'hf-oak', name: { ru: 'Дубовый паркет', en: 'Oak parquet' }, tier: 0, cost: 0, sat: 0, def: true },
+  { id: 'hf-tile', name: { ru: 'Чёрно-белая плитка', en: 'Checker tiles' }, tier: 1, cost: 450, sat: 0.01 },
+  { id: 'hf-terrazzo', name: { ru: 'Терраццо', en: 'Terrazzo' }, tier: 1, cost: 450, sat: 0.01 },
+  { id: 'hf-herring', name: { ru: 'Ёлочка', en: 'Herringbone' }, tier: 2, cost: 900, sat: 0.015 },
+];
+export const HALL_WALL_BY_ID: Record<string, Wallpaper & HallSurface> = Object.fromEntries(HALL_WALLS.map((w) => [w.id, w]));
+export const HALL_FLOOR_BY_ID: Record<string, HallSurface> = Object.fromEntries(HALL_FLOORS.map((w) => [w.id, w]));
+
+/** Старый декор зала → новые слоты (миграция). Без пары — деньги в бюджет. */
+export const CAFE_DECOR_TO_HALL: Record<string, string> = {
+  'c-lamps': 'sconces-0',
+  'c-garland': 'chandelier-1',
+  'c-pic-cup': 'picture-0',
+  'c-pic-hills': 'picture-1',
+  'c-shelf': 'shelf-0',
+  'c-floorplant': 'plant-1',
+  'c-sillplant': 'plant-0',
+};

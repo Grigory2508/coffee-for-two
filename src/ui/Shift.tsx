@@ -468,7 +468,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
 
       {/* Зал кофейни с декором — фон между гостями и прилавком */}
       <div class="shift-scene">
-        <CafeArt levels={state.levels} decor={state.cafeDecor?.placed} />
+        <CafeArt levels={state.levels} />
       </div>
 
       {/* Прилавок: чашка, шаги, «Пропустить» и «Подать» */}

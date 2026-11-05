@@ -1,6 +1,6 @@
 import { createContext } from 'preact';
 import { useContext } from 'preact/hooks';
-import { CAFE_DECOR_BY_ID, CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, ROOMS, STOCK_PACKS, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type CafeSlot } from '../core/content';
+import { HALL_BY_ID, HALL_FLOOR_BY_ID, HALL_WALL_BY_ID, CAFE_DECOR_BY_ID, CAFE_SLOTS, DECOR_BY_ID, DRINKS, MARKETING, REGULARS, ROLES, ROOMS, STOCK_PACKS, type DrinkId, type MarketingId, type RegularId, type Role, type StockId, type CafeSlot } from '../core/content';
 import type { ApplyResult } from '../core/engine';
 import type { CafeState, Command, LogEntry } from '../core/types';
 import { L, t } from '../i18n';
@@ -43,7 +43,7 @@ function itemName(kind: string, id: string): string {
   }
   if (kind === 'drink_unlocked') return L(DRINKS[id as DrinkId]?.name ?? { ru: id, en: id });
   if (kind === 'decor_bought' || kind === 'decor_placed') return L(DECOR_BY_ID[id]?.name ?? { ru: id, en: id });
-  if (kind === 'cafe_decor_bought') return L(CAFE_DECOR_BY_ID[id]?.name ?? { ru: id, en: id });
+  if (kind === 'cafe_decor_bought') return L((HALL_BY_ID[id] ?? HALL_WALL_BY_ID[id] ?? HALL_FLOOR_BY_ID[id] ?? CAFE_DECOR_BY_ID[id])?.name ?? { ru: id, en: id });
   if (kind === 'marketing_launched') return L(MARKETING[id as MarketingId]?.name ?? { ru: id, en: id });
   if (kind === 'regular_story') return L(REGULARS[id as RegularId]?.name ?? { ru: id, en: id });
   return id;

@@ -41,7 +41,8 @@ import { CupView } from './cup';
 import { RecipeIcons } from './recipe';
 import { expectedCup } from '../core/assembly';
 import { LogoView } from './logo';
-import { BrandCard, CafeDecorCard, ShopSheet } from './social';
+import { BrandCard, ShopSheet } from './social';
+import { HallTab } from './hall';
 import { CafeArt, Coin, Img, StockIcon } from './icons';
 import { describeLog, playerName, roleName, roomTitle, timeAgo, useGame } from './game';
 
@@ -378,7 +379,7 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
   return (
     <div class="tab">
       <div class="card hero">
-        <CafeArt levels={state.levels} decor={state.cafeDecor.placed} />
+        <CafeArt levels={state.levels} />
         <div class="hero-body">
           <div class="hero-title">{t('shiftTitle')}</div>
           <div class="muted small">{t('shiftGuestsToday', { n: guestsPerShift(state, now), s: Math.round(shiftDuration(guestsPerShift(state, now)) / 1000) })}</div>
@@ -401,9 +402,26 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
 export function CafeInfoTab() {
   const { state, me, now } = useGame();
   const [shop, setShop] = useState(false);
+  const [view, setView] = useState<'hall' | 'info'>('hall');
+  const seg = (
+    <div class="segmented">
+      {(['hall', 'info'] as const).map((v) => (
+        <button type="button" class={`seg ${view === v ? 'on' : ''}`} onClick={() => setView(v)}>
+          {t(v === 'hall' ? 'cafeViewHall' : 'cafeViewInfo')}
+        </button>
+      ))}
+    </div>
+  );
+  if (view === 'hall')
+    return (
+      <div class="tab">
+        {seg}
+        <HallTab />
+      </div>
+    );
   return (
     <div class="tab">
-      <CafeDecorCard />
+      {seg}
       <BrandCard onShop={() => setShop(true)} />
       {shop && <ShopSheet onClose={() => setShop(false)} />}
 

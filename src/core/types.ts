@@ -1,4 +1,4 @@
-import type { CafeDecorSlot, CafeSlot, DecorSlot, DessertId, Logo, DrinkId, MarketingId, MilkKind, RegularId, Role, RoomKind, StockId } from './content.ts';
+import type { CafeDecorSlot, CafeSlot, HallSlot, DecorSlot, DessertId, Logo, DrinkId, MarketingId, MilkKind, RegularId, Role, RoomKind, StockId } from './content.ts';
 export type { Role };
 
 export type PlayerId = string;
@@ -201,7 +201,10 @@ export interface CafeState {
   /** Уровни кофейни 1..3: машина, холодильник, склад, витрина. */
   levels: Record<CafeSlot, number>;
   /** Декор зала кофейни (покупается из бюджета, обставляется как комнаты). */
-  cafeDecor: { owned: string[]; placed: Partial<Record<CafeDecorSlot, string>> };
+  /** Старый декор зала — только в старых сохранениях, переносится в hall. */
+  cafeDecor?: { owned: string[]; placed: Partial<Record<CafeDecorSlot, string>> };
+  /** Гостевой зал: предметы по слотам, обои и пол. */
+  hall: HallState;
   /** Когда списываются десерты на витрине (мс). */
   dessertFresh: Partial<Record<DessertId, number>>;
   ratingRecent: number[]; // удовлетворённость 0..1 последних гостей
@@ -250,8 +253,10 @@ export type Command =
   | { type: 'submitBrand'; id: string }
   | { type: 'voteBrand'; id: string; yes: boolean }
   | { type: 'dropBrand'; id: string }
-  | { type: 'buyCafeDecor'; id: string }
-  | { type: 'placeCafeDecor'; slot: CafeDecorSlot; id: string | null }
+  | { type: 'buyHall'; id: string }
+  | { type: 'placeHall'; slot: HallSlot; id: string | null }
+  | { type: 'setHallWall'; id: string }
+  | { type: 'setHallFloor'; id: string }
   | { type: 'grantGems'; player: PlayerId; amount: number; ref: string }
   | { type: 'startShift' }
   | { type: 'finishShift'; results: GuestResult[]; cleanliness?: number }
@@ -291,4 +296,13 @@ export class GameError extends Error {
   constructor(public code: string, public params: Record<string, string | number> = {}) {
     super(code);
   }
+}
+
+export interface HallState {
+  owned: string[];
+  placed: Partial<Record<HallSlot, string>>;
+  walls: string[];
+  wall: string;
+  floors: string[];
+  floor: string;
 }

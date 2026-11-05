@@ -1,10 +1,9 @@
 // Вывеска (название + логотип), декор зала, магазин самоцветов и рейтинги.
 import { useEffect, useState } from 'preact/hooks';
-import { CAFE_DECOR, CAFE_DECOR_ORDER, CAFE_DECOR_SLOTS, CONFIG, GEMS, GEM_PACKS, cleanCafeName, type CafeDecorSlot, type Logo } from '../core/content';
+import { CONFIG, GEMS, GEM_PACKS, cleanCafeName, type Logo } from '../core/content';
 import { getPlayer, humans, weekId } from '../core/engine';
 import type { Ratings, RatingRow } from '../net/backend';
 import { L, t } from '../i18n';
-import { CafeArt } from './icons';
 import { BrandEditor, LogoView } from './logo';
 import { playerName, useGame } from './game';
 
@@ -115,70 +114,6 @@ export function BrandCard({ onShop }: { onShop: () => void }) {
 
 // ---------- декор зала ----------
 
-export function CafeDecorCard() {
-  const { state, me, send } = useGame();
-  const p = getPlayer(state, me.id)!;
-  const isManager = p.role === 'manager';
-  const [slot, setSlot] = useState<CafeDecorSlot>('light');
-  const placed = state.cafeDecor.placed;
-  let patience = 0;
-  let sat = 0;
-  for (const id of Object.values(placed)) {
-    const d = CAFE_DECOR.find((x) => x.id === id);
-    if (d) {
-      patience += d.patienceMs;
-      sat += d.sat;
-    }
-  }
-  return (
-    <>
-      <CafeArt levels={state.levels} decor={placed} onSlot={isManager ? setSlot : undefined} active={isManager ? slot : undefined} />
-      <div class="card">
-        <div class="card-title">🪴 {t('cafeDecorTitle')}</div>
-        <div class="muted small">{patience || sat ? t('cafeDecorEffect', { s: (patience / 1000).toFixed(1), p: Math.round(sat * 100) }) : t('cafeDecorNone')}</div>
-        {!isManager && <div class="locked-note">🔒 {t('cafeDecorManager')}</div>}
-        <div class="chips">
-          {CAFE_DECOR_ORDER.map((sl) => (
-            <button class={`chip ${slot === sl ? 'on' : ''} ${placed[sl] ? 'filled' : ''}`} onClick={() => setSlot(sl)}>
-              {L(CAFE_DECOR_SLOTS[sl])}
-            </button>
-          ))}
-        </div>
-        <div class="decor-grid">
-          {CAFE_DECOR.filter((d) => d.slot === slot).map((d) => {
-            const owned = state.cafeDecor.owned.includes(d.id);
-            const on = placed[d.slot] === d.id;
-            const eff = [d.patienceMs ? t('effPatience', { n: (d.patienceMs / 1000).toFixed(1) }) : '', d.sat ? t('effSat', { n: Math.round(d.sat * 100) }) : ''].filter(Boolean).join(' · ');
-            return (
-              <div class={`decor ${on ? 'placed' : ''}`}>
-                <img class="decor-img" src={`${import.meta.env.BASE_URL}art/${d.art[0].name}.webp`} alt="" draggable={false} />
-                <div class="small">{L(d.name)}</div>
-                <div class="tiny muted">{eff}</div>
-                {isManager &&
-                  (on ? (
-                    <button class="btn small ghost" onClick={() => send({ type: 'placeCafeDecor', slot: d.slot, id: null })}>
-                      {t('remove')}
-                    </button>
-                  ) : owned ? (
-                    <button class="btn small" onClick={() => send({ type: 'placeCafeDecor', slot: d.slot, id: d.id })}>
-                      {t('place')}
-                    </button>
-                  ) : (
-                    <button class="btn small" disabled={state.money < d.cost} onClick={() => send({ type: 'buyCafeDecor', id: d.id })}>
-                      {d.cost} 🪙
-                    </button>
-                  ))}
-                {!isManager && !on && !owned && <div class="tiny muted">{d.cost} 🪙</div>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ---------- магазин самоцветов ----------
 
 export function ShopSheet({ onClose }: { onClose: () => void }) {
   const { state, me, backend, toast, refresh } = useGame();

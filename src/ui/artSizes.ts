@@ -1,5 +1,14 @@
 // Сгенерировано scripts/art/sizes.py: ширина / высота каждого спрайта квартиры.
 export const ART_RATIO: Record<string, number> = {
+  "decor-floorplant": 0.59,
+  "decor-garland": 3.455,
+  "decor-hanging": 0.524,
+  "decor-lamp": 0.497,
+  "decor-pic-cup": 0.752,
+  "decor-pic-hills": 0.774,
+  "decor-shelf": 1.366,
+  "decor-sillplant": 0.732,
+  "decor-succulent": 0.785,
   "home-bed-0": 1.757,
   "home-bed-1": 1.703,
   "home-bed-2": 1.713,

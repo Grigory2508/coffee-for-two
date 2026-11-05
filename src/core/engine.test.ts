@@ -225,17 +225,41 @@ describe('смена', () => {
     expect(r.state.marketing!.shiftsLeft).toBe(2);
   });
 
-  it('декор зала: покупает управляющий из бюджета, гости терпеливее', () => {
+  it('зал: обставляет управляющий из бюджета, гости терпеливее и довольнее', () => {
     let s = join(fresh('barista'));
     s.money = 5000;
-    const before = slotEffects(s).patienceMs;
-    expect(() => run(s, 'a', { type: 'buyCafeDecor', id: 'c-floorplant' }, T0)).toThrow('wrong_role');
-    s = run(s, 'b', { type: 'buyCafeDecor', id: 'c-floorplant' }, T0).state;
-    expect(s.money).toBe(5000 - 500);
-    expect(s.cafeDecor.placed.floor).toBe('c-floorplant');
-    expect(slotEffects(s).patienceMs - before).toBe(2000);
-    s = run(s, 'b', { type: 'placeCafeDecor', slot: 'floor', id: null }, T0).state;
-    expect(s.cafeDecor.placed.floor).toBeUndefined();
+    expect(s.hall.placed).toMatchObject({ window1: 'window1-0', window2: 'window2-0', table1: 'table1-0' });
+    const before = slotEffects(s);
+    expect(() => run(s, 'a', { type: 'buyHall', id: 'plant-2' }, T0)).toThrow('wrong_role');
+    s = run(s, 'b', { type: 'buyHall', id: 'plant-2' }, T0).state;
+    expect(s.money).toBe(5000 - 900);
+    expect(s.hall.placed.plant).toBe('plant-2');
+    expect(slotEffects(s).patienceMs - before.patienceMs).toBe(700);
+    s = run(s, 'b', { type: 'placeHall', slot: 'plant', id: null }, T0).state;
+    expect(s.hall.placed.plant).toBeUndefined();
+    expect(() => run(s, 'b', { type: 'placeHall', slot: 'window1', id: null }, T0)).toThrow('bad_item');
+    expect(() => run(s, 'b', { type: 'placeHall', slot: 'table2', id: 'table1-0' }, T0)).toThrow('bad_item');
+    // обои и пол: первая поклейка платная, возврат к старым бесплатно
+    s = run(s, 'b', { type: 'setHallWall', id: 'hw-brick' }, T0).state;
+    expect(s.money).toBe(5000 - 900 - 900);
+    s = run(s, 'b', { type: 'setHallWall', id: 'hw-latte' }, T0).state;
+    s = run(s, 'b', { type: 'setHallWall', id: 'hw-brick' }, T0).state;
+    expect(s.money).toBe(5000 - 900 - 900);
+    s = run(s, 'b', { type: 'setHallFloor', id: 'hf-tile' }, T0).state;
+    expect(slotEffects(s).satBonus - before.satBonus).toBeCloseTo(0.015 + 0.01, 5);
+  });
+
+  it('миграция: старый декор у стойки переезжает в зал, непарное — деньгами', () => {
+    const s = fresh() as CafeState & { hall?: unknown };
+    delete (s as { hall?: unknown }).hall;
+    (s as CafeState).cafeDecor = { owned: ['c-lamps', 'c-floorplant', 'c-hanging', 'c-succulent'], placed: { light: 'c-lamps', floor: 'c-floorplant', hanging: 'c-hanging' } };
+    const money = s.money;
+    const m = migrate(s as CafeState);
+    expect(m.cafeDecor).toBeUndefined();
+    expect(m.hall.owned).toEqual(expect.arrayContaining(['sconces-0', 'plant-1', 'window1-0', 'table1-0']));
+    expect(m.hall.placed).toMatchObject({ sconces: 'sconces-0', plant: 'plant-1', table1: 'table1-0' });
+    expect(m.money).toBe(money + 350 + 200);
+    expect(m.hall.wall).toBe('hw-latte');
   });
 
   it('гость уходит, если не хватает продуктов', () => {

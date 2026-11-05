@@ -2571,3 +2571,12 @@ img.decor-icon { width: 100%; height: 56px; object-fit: contain; }
 .room-scene .baseboard-shade { left: 0; right: 0; height: 1.2%; background: linear-gradient(#6b4a3a00, #6b4a3a26); }
 .room-scene .room-vignette { inset: 0; background: radial-gradient(ellipse at 50% 45%, #0000 60%, #3a24160f 100%); }
 .room-scene .lamp-glow { aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(closest-side, #ffe9a855, #ffe9a800); mix-blend-mode: screen; }
+
+/* ---------- гостевой зал ---------- */
+.hall-scene .window-light { height: 22%; transform: translateX(-50%) perspective(80px) rotateX(38deg); transform-origin: top; background: linear-gradient(#fff6dc66, #fff6dc00); pointer-events: none; }
+.hall-scene .window-light.stained { background: linear-gradient(90deg, #f2a0a055, #f6d77a55 35%, #8fc7d455 65%, #b9a0e055); }
+.hall-scene .sconce-wash { width: 9%; height: 16%; transform: translateX(-50%); background: radial-gradient(ellipse 50% 50% at 50% 50%, #ffe9b066, #ffe9b000 70%); pointer-events: none; }
+.hall-scene .hall-glow { aspect-ratio: 1; transform: translateX(-50%); background: radial-gradient(circle, #ffe7a855, #ffe7a800 65%); pointer-events: none; }
+.hall-scene .hall-sign { display: flex; align-items: center; gap: 3px; padding: 2px 6px 2px 3px; background: #3b2a20; color: #fbe7c2; border-radius: 6px; font-size: 9px; font-weight: 800; white-space: nowrap; max-width: 30%; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 0 8px #ffd27a55; }
+.hall-scene .layer.active { filter: drop-shadow(0 0 3px #ffb347) drop-shadow(0 0 1px #ffb347); }
+.hall-scene .room-empty.active { outline: 2px dashed #ffb347; }

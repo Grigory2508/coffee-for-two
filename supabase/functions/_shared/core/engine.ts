@@ -26,11 +26,17 @@ import {
   CAFE_SLOTS,
   SLOT_MAX,
   CAFE_DECOR_BY_ID,
+  CAFE_DECOR_TO_HALL,
+  HALL_BY_ID,
+  HALL_FLOORS,
+  HALL_FLOOR_BY_ID,
+  HALL_START,
+  HALL_WALLS,
+  HALL_WALL_BY_ID,
   DEFAULT_LOGO,
   GEM_PACKS,
   cleanCafeName,
   cleanLogo,
-  type CafeDecorSlot,
   ROOM_SLOTS,
   type CafeSlot,
   type Logo,
@@ -56,6 +62,7 @@ import {
   type ShiftSegment,
   type BrandProposal,
   type HomeRoom,
+  type HallState,
 } from './types.ts';
 
 export const NPC_ID = 'npc';
@@ -331,12 +338,13 @@ export function slotEffects(s: CafeState) {
   const m = slotLevel(s, 'machine');
   let decorPatience = 0;
   let decorSat = 0;
-  for (const id of Object.values(s.cafeDecor?.placed ?? {})) {
-    const d = id ? CAFE_DECOR_BY_ID[id] : undefined;
+  for (const id of Object.values(s.hall?.placed ?? {})) {
+    const d = id ? HALL_BY_ID[id] : undefined;
     if (!d) continue;
     decorPatience += d.patienceMs;
     decorSat += d.sat;
   }
+  decorSat += (HALL_WALL_BY_ID[s.hall?.wall ?? '']?.sat ?? 0) + (HALL_FLOOR_BY_ID[s.hall?.floor ?? '']?.sat ?? 0);
   return {
     /** Сколько эспрессо пролить сразу: на однорожковой двойной идёт в два пролива. */
     machineHeads: m >= 2 ? 2 : 1,
@@ -485,7 +493,7 @@ export function createCafe(opts: {
     upgrades: {},
     levels: { machine: 1, fridge: 1, storage: 1, vitrine: 1 },
     dessertFresh: {},
-    cafeDecor: { owned: [], placed: {} },
+    hall: newHall(),
     ratingRecent: [],
     regulars: {},
     activeShifts: {},
@@ -1173,29 +1181,48 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       s.brands = s.brands.filter((x) => x.id !== b.id);
       break;
     }
-    case 'buyCafeDecor': {
-      // Декор зала — развитие кофейни: покупает управляющий из бюджета
+    case 'buyHall': {
+      // Зал — развитие кофейни: обставляет управляющий из бюджета
       requireRole(p, 'manager');
-      const item = CAFE_DECOR_BY_ID[cmd.id];
+      const item = HALL_BY_ID[cmd.id];
       if (!item) throw new GameError('bad_item');
-      if (s.cafeDecor.owned.includes(item.id)) throw new GameError('owned');
+      if (s.hall.owned.includes(item.id)) throw new GameError('owned');
       requireMoney(s, item.cost);
       s.money -= item.cost;
-      s.cafeDecor.owned.push(item.id);
-      s.cafeDecor.placed[item.slot] = item.id;
+      s.hall.owned.push(item.id);
+      s.hall.placed[item.slot] = item.id;
       markDay(p, at);
       addLog(s, at, actor, 'cafe_decor_bought', { id: item.id });
       break;
     }
-    case 'placeCafeDecor': {
+    case 'placeHall': {
       requireRole(p, 'manager');
       if (cmd.id === null) {
-        delete s.cafeDecor.placed[cmd.slot as CafeDecorSlot];
+        if (cmd.slot === 'window1' || cmd.slot === 'window2') throw new GameError('bad_item'); // без окна нельзя
+        delete s.hall.placed[cmd.slot];
       } else {
-        const item = CAFE_DECOR_BY_ID[cmd.id];
-        if (!item || item.slot !== cmd.slot || !s.cafeDecor.owned.includes(item.id)) throw new GameError('bad_item');
-        s.cafeDecor.placed[cmd.slot] = item.id;
+        const item = HALL_BY_ID[cmd.id];
+        if (!item || item.slot !== cmd.slot || !s.hall.owned.includes(item.id)) throw new GameError('bad_item');
+        s.hall.placed[cmd.slot] = item.id;
       }
+      break;
+    }
+    case 'setHallWall':
+    case 'setHallFloor': {
+      requireRole(p, 'manager');
+      const wall = cmd.type === 'setHallWall';
+      const item = wall ? HALL_WALL_BY_ID[cmd.id] : HALL_FLOOR_BY_ID[cmd.id];
+      if (!item) throw new GameError('bad_item');
+      const have = wall ? s.hall.walls : s.hall.floors;
+      if (!have.includes(item.id)) {
+        requireMoney(s, item.cost);
+        s.money -= item.cost;
+        have.push(item.id);
+        markDay(p, at);
+        addLog(s, at, actor, 'cafe_decor_bought', { id: item.id });
+      }
+      if (wall) s.hall.wall = item.id;
+      else s.hall.floor = item.id;
       break;
     }
     case 'startShift': {
@@ -1653,7 +1680,7 @@ export function migrate(s: CafeState): CafeState {
   if (!x.brands) x.brands = [];
   if (!x.today) x.today = { day: '', points: 0 };
   if (x.stats.points === undefined) x.stats.points = x.week.points;
-  if (!x.cafeDecor) {
+  if (!x.cafeDecor && !x.hall) {
     // Уровни «столики» и «декор» заменены декором зала: декор переводим в предметы, столики — в деньги
     const lv = x.levels as Record<string, number>;
     const d = lv.decor ?? 1;
@@ -1675,12 +1702,44 @@ export function migrate(s: CafeState): CafeState {
     ensureHome(x);
     delete x.room;
   }
+  migrateHall(x);
   migrateMenu(x);
   if (x.players.length === 2 && x.players[0].role === x.players[1].role) x.players[1].role = otherRole(x.players[0].role);
   return x;
 }
 
 /** Меню первой очереди (классика + рафы, склад по видам): переносим старые сохранения. */
+/** Старый декор зала (7 слотов у стойки) → гостевой зал со слотами как у комнат. */
+function migrateHall(x: CafeState) {
+  if (x.hall) return;
+  x.hall = newHall();
+  const old = x.cafeDecor;
+  if (old) {
+    for (const id of old.owned) {
+      const to = CAFE_DECOR_TO_HALL[id];
+      const it = to ? HALL_BY_ID[to] : undefined;
+      if (it && !x.hall.owned.includes(it.id)) x.hall.owned.push(it.id);
+      else x.money += CAFE_DECOR_BY_ID[id]?.cost ?? 0; // подвесное растение и суккулент — без пары, деньги назад
+    }
+    for (const id of Object.values(old.placed)) {
+      const it = id ? HALL_BY_ID[CAFE_DECOR_TO_HALL[id] ?? ''] : undefined;
+      if (it) x.hall.placed[it.slot] = it.id;
+    }
+  }
+  delete x.cafeDecor;
+}
+
+export function newHall(): HallState {
+  return {
+    owned: Object.values(HALL_START) as string[],
+    placed: { ...HALL_START },
+    walls: [HALL_WALLS.find((w) => w.def)!.id],
+    wall: HALL_WALLS.find((w) => w.def)!.id,
+    floors: [HALL_FLOORS.find((w) => w.def)!.id],
+    floor: HALL_FLOORS.find((w) => w.def)!.id,
+  };
+}
+
 function migrateMenu(x: CafeState) {
   const st = x.stock as Record<string, number>;
   if (st.milk !== undefined || st.syrup !== undefined || st.cocoa !== undefined || st.milk_regular === undefined) {

@@ -42,6 +42,13 @@ function Motif({ w }: { w: Wallpaper }) {
           <rect x="0" y="11" width="24" height="1.2" opacity="0.5" />
         </g>
       );
+    case 'brick':
+      // кирпич: светлые швы по терракотовому фону, ряды со сдвигом в полкирпича
+      return (
+        <g fill="none" stroke={ink} stroke-width="1.1">
+          <path d="M0 0.5 H24 M0 12.5 H24 M12 0.5 V12.5 M0 12.5 V24 M24 12.5 V24" />
+        </g>
+      );
     case 'tiles':
       return <rect x="0.6" y="0.6" width="10.8" height="10.8" fill={w.accent ?? '#ffffff'} stroke={ink} stroke-width="1.2" />;
     default:
