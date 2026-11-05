@@ -101,7 +101,8 @@ export function LogoView({ logo, size = 40 }: { logo: Logo; size?: number }) {
   const fg = LOGO_COLORS[l.fg];
   const shape = SHAPES[l.shape];
   const hasIcon = l.icon !== LOGO_NO_ICON;
-  const deco = l.deco ? LOGO_DECOS[l.deco] : undefined;
+  // на маленьком логотипе (шапка, рейтинг) украшение съедает значок — рисуем без него
+  const deco = l.deco && size >= 36 ? LOGO_DECOS[l.deco] : undefined;
   const textY = hasIcon ? 86 : 62;
   const textSize = hasIcon ? 16 : l.text.length > 1 ? 36 : 44;
   return (

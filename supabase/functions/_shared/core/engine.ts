@@ -1264,7 +1264,10 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       const entries = (Object.entries(cmd.items ?? {}) as [StockId, number][]).filter(([k, n]) => k !== 'catFood' && STOCK_PACKS[k] && Number.isInteger(n) && n > 0);
       if (!entries.length) throw new GameError('empty_order');
       let cost = 0;
+      const milks = availableMilks(s);
       for (const [k, n] of entries) {
+        // молоко и сливки — только тех видов, что держит холодильник (иначе куплено и не видно)
+        if ((k.startsWith('milk_') || k.startsWith('cream_')) && !milks.includes(k.split('_')[1] as MilkKind)) throw new GameError('no_fridge');
         const cap = capacity(s, k);
         if ((s.stock[k] ?? 0) + STOCK_PACKS[k].amount * n > cap) throw new GameError('capacity', { cap });
         cost += packPrice(s, actor, k) * n;

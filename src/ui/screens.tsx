@@ -376,6 +376,8 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
   const waitMs = lack ? ((cost - v.energy) / v.restPerMin) * 60_000 : 0;
   const active = !!state.activeShifts[me.id];
   const catHere = catInCafe(state);
+  // ни один напиток меню не сварить — смена пропадёт впустую: все гости уйдут, бодрость спишется
+  const nothing = !active && todayMenu(state).every((id) => !canMake(state.stock, id));
   return (
     <div class="tab">
       <div class="card hero">
@@ -384,10 +386,11 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
           <div class="hero-title">{t('shiftTitle')}</div>
           <div class="muted small">{t('shiftGuestsToday', { n: guestsPerShift(state, now), s: Math.round(shiftDuration(guestsPerShift(state, now)) / 1000) })}</div>
           <AudienceChips />
-          <button class="btn primary big wide" disabled={!active && (lack || !!counter)} onClick={onStartShift}>
+          <button class="btn primary big wide" disabled={!active && (lack || !!counter || nothing)} onClick={onStartShift}>
             {active ? t('continueShift') : t('startShiftCost', { e: cost })}
           </button>
           {!active && counter && <div class="locked-note center">⏳ {t('counterBusy', { name: counter.name })}</div>}
+          {nothing && !counter && <div class="locked-note center">📦 {t('nothingToBrew')}</div>}
           {!active && !counter && lack && <div class="muted small center">{t('noEnergy', { need: cost, t: fmtDuration(waitMs) })}</div>}
           {state.marketing && <div class="small center">📣 {t('marketingActive', { name: L(MARKETING[state.marketing.id].name), n: state.marketing.shiftsLeft })}</div>}
           {catHere && <div class="small center">🐈 {t('catInCafe', { name: state.cat!.name })}</div>}
