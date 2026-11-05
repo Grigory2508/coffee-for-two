@@ -221,7 +221,7 @@ function localRatings(s: CafeState | null, at: number): Ratings {
     const rows: RatingRow[] = FAKE_CAFES.slice(0, 14).map((name, i) => ({
       code: `fake${i}`,
       name,
-      logo: { shape: Math.floor(rnd() * LOGO_SHAPES.length), bg: Math.floor(rnd() * LOGO_COLORS.length), fg: 6, icon: Math.floor(rnd() * (LOGO_ICONS.length - 1)), text: '', frame: 1 },
+      logo: { shape: Math.floor(rnd() * LOGO_SHAPES.length), bg: Math.floor(rnd() * LOGO_COLORS.length), fg: 6, icon: [0, 1, 2, 7, 9, 10, 11, 17, 18, 19][Math.floor(rnd() * 10)] % LOGO_ICONS.length, text: '', frame: 1 },
       points: Math.round((0.1 + rnd()) * scale),
       you: false,
     }));

@@ -1,7 +1,8 @@
 // Логотип кофейни: собирается только из элементов конструктора (форма, цвета, значок, буквы, рамка).
 // Свои картинки не загружаем: логотип видят все в рейтингах, а модерация картинок — отдельная большая задача.
 import { useState } from 'preact/hooks';
-import { LOGO_COLORS, LOGO_FRAMES, LOGO_ICONS, LOGO_SHAPES, LOGO_TEXT_MAX, cleanLogo, type Logo } from '../core/content';
+import { LOGO_COLORS, LOGO_DECOS, LOGO_FONTS, LOGO_FRAMES, LOGO_ICONS, LOGO_NO_ICON, LOGO_SHAPES, LOGO_TEXT_MAX, cleanLogo, type Logo } from '../core/content';
+import { art } from './icons';
 import { L, t } from '../i18n';
 
 const SHAPES = [
@@ -10,9 +11,47 @@ const SHAPES = [
   'M50 3 L97 50 L50 97 L3 50 Z', // ромб
   'M8 18 Q8 10 16 10 H84 Q92 10 92 18 V78 Q92 86 84 86 H16 Q8 86 8 78 Z', // вывеска
   'M10 96 V46 A40 40 0 0 1 90 46 V96 Z', // арка
+  'M50 4 L90 27 V73 L50 96 L10 73 V27 Z', // шестиугольник
+  'M32 5 H68 L95 32 V68 L68 95 H32 L5 68 V32 Z', // восьмиугольник
+  scallop(16, 46, 40), // печать
+  'M8 16 H92 V40 A10 10 0 0 0 92 60 V84 H8 V60 A10 10 0 0 0 8 40 Z', // билет
+  'M24 82 A18 18 0 0 1 18 47 A20 20 0 0 1 44 26 A24 24 0 0 1 84 40 A21 21 0 0 1 80 82 Z', // облако
+  'M12 6 H88 V94 L50 76 L12 94 Z', // флажок
+  'M50 5 A38 45 0 1 0 50.01 5 Z', // овал
 ];
 
+const FONTS = ['ui-rounded, system-ui, sans-serif', 'Georgia, "Times New Roman", serif', '"Segoe Print", "Bradley Hand", "Comic Sans MS", cursive'];
+
+/** Круг с зубцами: n зубцов, внешний и внутренний радиус. */
+function scallop(n: number, r1: number, r2: number): string {
+  let d = '';
+  for (let i = 0; i < n * 2; i++) {
+    const a = (Math.PI * i) / n - Math.PI / 2;
+    const r = i % 2 ? r2 : r1;
+    d += `${i ? 'L' : 'M'}${(50 + r * Math.cos(a)).toFixed(1)} ${(50 + r * Math.sin(a)).toFixed(1)} `;
+  }
+  return d + 'Z';
+}
+
+let maskSeq = 0;
+const ICON_GROUPS = ['coffee', 'bakery', 'animals', 'nature', 'base'] as const;
+
+/** Значок-маска: силуэт из файла, залитый цветом рисунка. */
+function MaskIcon({ src, color, box = [20, 20, 60, 60] }: { src: string; color: string; box?: [number, number, number, number] }) {
+  const id = `lm${++maskSeq}`;
+  return (
+    <g>
+      <mask id={id} maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+        <image href={art(src)} x={box[0]} y={box[1]} width={box[2]} height={box[3]} />
+      </mask>
+      <rect x="0" y="0" width="100" height="100" fill={color} mask={`url(#${id})`} />
+    </g>
+  );
+}
+
 function Icon({ i, color }: { i: number; color: string }) {
+  const def = LOGO_ICONS[i];
+  if (def?.art) return <MaskIcon src={`logo/${def.art}`} color={color} />;
   switch (i) {
     case 0: // чашка
       return (
@@ -61,15 +100,18 @@ export function LogoView({ logo, size = 40 }: { logo: Logo; size?: number }) {
   const bg = LOGO_COLORS[l.bg];
   const fg = LOGO_COLORS[l.fg];
   const shape = SHAPES[l.shape];
-  const hasIcon = l.icon < 8;
+  const hasIcon = l.icon !== LOGO_NO_ICON;
+  const deco = l.deco ? LOGO_DECOS[l.deco] : undefined;
   const textY = hasIcon ? 86 : 62;
   const textSize = hasIcon ? 16 : l.text.length > 1 ? 36 : 44;
   return (
     <svg viewBox="0 0 100 100" width={size} height={size} class="logo" aria-hidden="true">
+      {deco?.art && <MaskIcon src={`logo/${deco.art}`} color={bg} box={[0, 0, 100, 100]} />}
+      <g transform={deco?.art ? 'translate(50 50) scale(0.66) translate(-50 -50)' : undefined}>
       <path d={shape} fill={bg} />
       {l.frame > 0 && (
         <g transform="translate(50 50) scale(0.86) translate(-50 -50)">
-          <path d={shape} fill="none" stroke={fg} stroke-width={l.frame === 2 ? 2.5 : 3} stroke-dasharray={l.frame === 3 ? '6 5' : undefined} />
+          <path d={shape} fill="none" stroke={fg} stroke-width={l.frame === 2 ? 2.5 : l.frame === 5 ? 5.5 : l.frame === 4 ? 3.5 : 3} stroke-linecap="round" stroke-linejoin="round" stroke-dasharray={l.frame === 3 ? '6 5' : l.frame === 4 ? '0.1 6' : undefined} />
           {l.frame === 2 && (
             <g transform="translate(50 50) scale(0.9) translate(-50 -50)">
               <path d={shape} fill="none" stroke={fg} stroke-width="2" />
@@ -83,17 +125,18 @@ export function LogoView({ logo, size = 40 }: { logo: Logo; size?: number }) {
         </g>
       )}
       {l.text && (
-        <text x="50" y={textY} text-anchor="middle" font-size={textSize} font-weight="800" fill={fg} font-family="ui-rounded, system-ui, sans-serif">
+        <text x="50" y={textY} text-anchor="middle" font-size={textSize} font-weight="800" fill={fg} font-family={FONTS[l.font ?? 0]}>
           {l.text}
         </text>
       )}
+      </g>
     </svg>
   );
 }
 
 /** Конструктор: название + логотип. Используется при открытии кофейни (бесплатно) и для предложения новой вывески. */
 export function BrandEditor({ name, logo, onChange }: { name: string; logo: Logo; onChange: (name: string, logo: Logo) => void }) {
-  const [part, setPart] = useState<'shape' | 'icon' | 'colors' | 'text'>('icon');
+  const [part, setPart] = useState<'shape' | 'icon' | 'colors' | 'text' | 'deco'>('icon');
   const set = (p: Partial<Logo>) => onChange(name, cleanLogo({ ...logo, ...p }));
   return (
     <div class="brand-editor">
@@ -106,6 +149,7 @@ export function BrandEditor({ name, logo, onChange }: { name: string; logo: Logo
           [
             ['icon', t('logoIcon')],
             ['shape', t('logoShape')],
+            ['deco', t('logoDeco')],
             ['colors', t('logoColors')],
             ['text', t('logoText')],
           ] as const
@@ -116,11 +160,20 @@ export function BrandEditor({ name, logo, onChange }: { name: string; logo: Logo
         ))}
       </div>
       {part === 'icon' && (
-        <div class="logo-grid">
-          {LOGO_ICONS.map((n, i) => (
-            <button type="button" class={`logo-opt ${logo.icon === i ? 'on' : ''}`} onClick={() => set({ icon: i })} aria-label={L(n)}>
-              <LogoView logo={{ ...logo, icon: i, text: '' }} size={44} />
-            </button>
+        <div class="logo-groups">
+          {ICON_GROUPS.filter((g) => LOGO_ICONS.some((n) => n.group === g)).map((g) => (
+            <div class="logo-group">
+              <div class="muted small">{t(`logoGroup_${g}`)}</div>
+              <div class="logo-grid">
+                {LOGO_ICONS.map((n, i) =>
+                  n.group !== g ? null : (
+                    <button type="button" class={`logo-opt ${logo.icon === i ? 'on' : ''}`} onClick={() => set({ icon: i })} aria-label={L(n)}>
+                      <LogoView logo={{ ...logo, icon: i, text: '' }} size={44} />
+                    </button>
+                  ),
+                )}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -142,6 +195,15 @@ export function BrandEditor({ name, logo, onChange }: { name: string; logo: Logo
           </div>
         </>
       )}
+      {part === 'deco' && (
+        <div class="logo-grid">
+          {LOGO_DECOS.map((n, i) => (
+            <button type="button" class={`logo-opt ${(logo.deco ?? 0) === i ? 'on' : ''}`} onClick={() => set({ deco: i })} aria-label={L(n)}>
+              <LogoView logo={{ ...logo, deco: i }} size={44} />
+            </button>
+          ))}
+        </div>
+      )}
       {part === 'colors' && (
         <>
           <div class="muted small">{t('logoBg')}</div>
@@ -161,6 +223,15 @@ export function BrandEditor({ name, logo, onChange }: { name: string; logo: Logo
       {part === 'text' && (
         <div class="row gap">
           <input class="input grow" value={logo.text} maxLength={LOGO_TEXT_MAX} placeholder={t('logoTextHint')} onInput={(e) => set({ text: (e.target as HTMLInputElement).value })} />
+        </div>
+      )}
+      {part === 'text' && (
+        <div class="chips">
+          {LOGO_FONTS.map((n, i) => (
+            <button type="button" class={`chip ${(logo.font ?? 0) === i ? 'on' : ''}`} onClick={() => set({ font: i })} style={{ fontFamily: FONTS[i] }}>
+              {L(n)}
+            </button>
+          ))}
         </div>
       )}
     </div>

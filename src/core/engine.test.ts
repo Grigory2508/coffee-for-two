@@ -638,3 +638,15 @@ describe('уровни кофейни', () => {
     expect((m.upgrades as Record<string, boolean>).machinePro).toBeUndefined();
   });
 });
+
+describe('логотип: новые элементы', () => {
+  it('принимает новые значки, украшения и шрифты, отбрасывает чужие значения', async () => {
+    const { cleanLogo, LOGO_ICONS, LOGO_DECOS, LOGO_FONTS } = await import('./content');
+    const ok = cleanLogo({ shape: 11, bg: 15, fg: 6, icon: LOGO_ICONS.length - 1, text: 'нм', frame: 5, font: 2, deco: LOGO_DECOS.length - 1 });
+    expect(ok).toMatchObject({ shape: 11, bg: 15, icon: LOGO_ICONS.length - 1, frame: 5, font: 2, deco: LOGO_DECOS.length - 1, text: 'НМ' });
+    const bad = cleanLogo({ icon: 999, font: LOGO_FONTS.length, deco: -1 } as never);
+    expect(bad).toMatchObject({ icon: 0, font: 0, deco: 0 });
+    // старые логотипы без новых полей остаются как были
+    expect(cleanLogo({ shape: 0, bg: 0, fg: 6, icon: 8, text: '', frame: 1 })).toMatchObject({ icon: 8, font: 0, deco: 0 });
+  });
+});

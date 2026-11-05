@@ -2438,6 +2438,8 @@ button.hud-chip {
 .brand-editor { display: flex; flex-direction: column; gap: 8px; }
 .brand-preview { display: flex; align-items: center; gap: 10px; }
 .logo-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.logo-groups { display: grid; gap: 10px; max-height: 320px; overflow-y: auto; }
+.logo-group .muted { margin-bottom: 4px; }
 .logo-opt { border: 2px solid transparent; background: var(--paper); border-radius: 12px; padding: 4px; display: grid; place-items: center; cursor: pointer; }
 .logo-opt.on { border-color: var(--coffee); }
 .swatches { display: flex; flex-wrap: wrap; gap: 6px; }

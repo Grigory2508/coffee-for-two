@@ -465,6 +465,10 @@ export interface Logo {
   icon: number;
   text: string;
   frame: number;
+  /** Шрифт букв (LOGO_FONTS); нет у старых логотипов. */
+  font?: number;
+  /** Украшение вокруг формы (LOGO_DECOS), 0 — без украшения. */
+  deco?: number;
 }
 
 export const LOGO_SHAPES: L10n[] = [
@@ -473,24 +477,98 @@ export const LOGO_SHAPES: L10n[] = [
   { ru: 'Ромб', en: 'Diamond' },
   { ru: 'Вывеска', en: 'Sign' },
   { ru: 'Арка', en: 'Arch' },
+  { ru: 'Шестиугольник', en: 'Hexagon' },
+  { ru: 'Восьмиугольник', en: 'Octagon' },
+  { ru: 'Печать', en: 'Seal' },
+  { ru: 'Билет', en: 'Ticket' },
+  { ru: 'Облако', en: 'Cloud' },
+  { ru: 'Флажок', en: 'Pennant' },
+  { ru: 'Овал', en: 'Oval' },
 ];
-export const LOGO_COLORS = ['#6b4226', '#c8873a', '#e8a598', '#6f9e88', '#3f6b8a', '#2e2420', '#f6efe6', '#b8695a', '#8a6fb0', '#e0b43a'];
-export const LOGO_ICONS: L10n[] = [
-  { ru: 'Чашка', en: 'Cup' },
-  { ru: 'Зерно', en: 'Bean' },
-  { ru: 'Кот', en: 'Cat' },
-  { ru: 'Сердце', en: 'Heart' },
-  { ru: 'Звезда', en: 'Star' },
-  { ru: 'Лист', en: 'Leaf' },
-  { ru: 'Луна', en: 'Moon' },
-  { ru: 'Круассан', en: 'Croissant' },
-  { ru: 'Без значка', en: 'No icon' },
+/** Индексы не меняются (сохранённые логотипы): новые цвета — только в конец. */
+export const LOGO_COLORS = ['#6b4226', '#c8873a', '#e8a598', '#6f9e88', '#3f6b8a', '#2e2420', '#f6efe6', '#b8695a', '#8a6fb0', '#e0b43a', '#d9cbb8', '#a33b3b', '#2f5d50', '#f0d9a8', '#1f3550', '#d98c5f'];
+export interface LogoIcon extends L10n {
+  /** Маска-силуэт из public/art/logo (перекрашивается в цвет рисунка). Без art — значок нарисован в SVG. */
+  art?: string;
+  group: 'base' | 'coffee' | 'bakery' | 'animals' | 'nature';
+}
+const LI = (art: string, group: LogoIcon['group'], ru: string, en: string): LogoIcon => ({ art, group, ru, en });
+/** Индексы 0–8 не меняются (сохранённые логотипы); 8 — «без значка». Новые значки — только в конец. */
+export const LOGO_ICONS: LogoIcon[] = [
+  { ru: 'Чашка', en: 'Cup', group: 'base' },
+  { ru: 'Зерно', en: 'Bean', group: 'base' },
+  { ru: 'Кот', en: 'Cat', group: 'base' },
+  { ru: 'Сердце', en: 'Heart', group: 'base' },
+  { ru: 'Звезда', en: 'Star', group: 'base' },
+  { ru: 'Лист', en: 'Leaf', group: 'base' },
+  { ru: 'Луна', en: 'Moon', group: 'base' },
+  { ru: 'Круассан', en: 'Croissant', group: 'base' },
+  { ru: 'Без значка', en: 'No icon', group: 'base' },
+  LI('li-cup', 'coffee', 'Чашка с паром', 'Steaming cup'),
+  LI('li-togo', 'coffee', 'Стакан с собой', 'To-go cup'),
+  LI('li-bean', 'coffee', 'Кофейное зерно', 'Coffee bean'),
+  LI('li-cezve', 'coffee', 'Турка', 'Cezve'),
+  LI('li-moka', 'coffee', 'Гейзерная кофеварка', 'Moka pot'),
+  LI('li-press', 'coffee', 'Френч-пресс', 'French press'),
+  LI('li-latte', 'coffee', 'Латте-арт', 'Latte art'),
+  LI('li-grinder', 'coffee', 'Кофемолка', 'Grinder'),
+  LI('li-croissant', 'bakery', 'Круассан', 'Croissant'),
+  LI('li-cupcake', 'bakery', 'Капкейк', 'Cupcake'),
+  LI('li-donut', 'bakery', 'Пончик', 'Donut'),
+  LI('li-cookie', 'bakery', 'Печенье', 'Cookie'),
+  LI('li-pretzel', 'bakery', 'Крендель', 'Pretzel'),
+  LI('li-cake', 'bakery', 'Торт', 'Cake'),
+  LI('li-macaron', 'bakery', 'Макарон', 'Macaron'),
+  LI('li-cinnabon', 'bakery', 'Булочка с корицей', 'Cinnamon roll'),
+  LI('li-cat-sit', 'animals', 'Кот сидит', 'Sitting cat'),
+  LI('li-cat-face', 'animals', 'Мордочка кота', 'Cat face'),
+  LI('li-cat-sleep', 'animals', 'Кот спит', 'Sleeping cat'),
+  LI('li-paw', 'animals', 'Лапка', 'Paw'),
+  LI('li-dog', 'animals', 'Собака', 'Dog'),
+  LI('li-bird', 'animals', 'Птичка', 'Bird'),
+  LI('li-fox', 'animals', 'Лиса', 'Fox'),
+  LI('li-bear', 'animals', 'Медведь', 'Bear'),
+  LI('li-leaf', 'nature', 'Лист', 'Leaf'),
+  LI('li-flower', 'nature', 'Цветок', 'Flower'),
+  LI('li-sun', 'nature', 'Солнце', 'Sun'),
+  LI('li-moon', 'nature', 'Луна и звезда', 'Moon and star'),
+  LI('li-cloud', 'nature', 'Облако', 'Cloud'),
+  LI('li-mountains', 'nature', 'Горы', 'Mountains'),
+  LI('li-book', 'nature', 'Книга', 'Book'),
+  LI('li-bulb', 'nature', 'Лампочка', 'Light bulb'),
 ];
+export const LOGO_NO_ICON = 8;
 export const LOGO_FRAMES: L10n[] = [
   { ru: 'Без рамки', en: 'No frame' },
   { ru: 'Тонкая', en: 'Thin' },
   { ru: 'Двойная', en: 'Double' },
   { ru: 'Пунктир', en: 'Dashed' },
+  { ru: 'Точки', en: 'Dotted' },
+  { ru: 'Жирная', en: 'Bold' },
+];
+export interface LogoDeco extends L10n {
+  art?: string;
+}
+/** Украшения вокруг формы: маски из public/art/logo, красятся в цвет фона. Индекс 0 — без украшения. */
+export const LOGO_DECOS: LogoDeco[] = [
+  { ru: 'Без украшения', en: 'None' },
+  { art: 'ld-laurel', ru: 'Лавровый венок', en: 'Laurel' },
+  { art: 'ld-coffee', ru: 'Кофейные ветви', en: 'Coffee branches' },
+  { art: 'ld-ribbon', ru: 'Лента', en: 'Ribbon' },
+  { art: 'ld-rays', ru: 'Лучи', en: 'Rays' },
+  { art: 'ld-stars', ru: 'Звёзды', en: 'Stars' },
+  { art: 'ld-steam', ru: 'Пар', en: 'Steam' },
+  { art: 'ld-wheat', ru: 'Колосья', en: 'Wheat' },
+  { art: 'ld-hearts', ru: 'Сердечки', en: 'Hearts' },
+  { art: 'ld-seal', ru: 'Печать', en: 'Seal' },
+  { art: 'ld-flourish', ru: 'Завитки', en: 'Flourishes' },
+  { art: 'ld-holly', ru: 'Остролист', en: 'Holly' },
+  { art: 'ld-maple', ru: 'Клён', en: 'Maple' },
+];
+export const LOGO_FONTS: L10n[] = [
+  { ru: 'Округлый', en: 'Rounded' },
+  { ru: 'С засечками', en: 'Serif' },
+  { ru: 'Рукописный', en: 'Script' },
 ];
 export const LOGO_TEXT_MAX = 2;
 export const DEFAULT_LOGO: Logo = { shape: 0, bg: 0, fg: 6, icon: 0, text: '', frame: 1 };
@@ -509,6 +587,8 @@ export function cleanLogo(l: Partial<Logo> | undefined): Logo {
     icon: n(l?.icon, LOGO_ICONS.length, 0),
     text: BAD_WORDS.test(text) ? '' : text,
     frame: n(l?.frame, LOGO_FRAMES.length, 1),
+    font: n(l?.font, LOGO_FONTS.length, 0),
+    deco: n(l?.deco, LOGO_DECOS.length, 0),
   };
 }
 
