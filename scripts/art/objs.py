@@ -32,11 +32,19 @@ def bands(busy, gap, minlen):
     return [b for b in out if b[1] - b[0] >= minlen]
 
 
-rows = bands(ink.sum(axis=1) > 2, 18, 30)
+import os
+GRID = os.environ.get('GRID')  # «3x4»: ровная сетка колонки×ряды, когда предметы стоят слишком плотно
+rows = bands(ink.sum(axis=1) > max(2, ink.shape[1] * 0.004), 12, 30)  # строже: фон с шумом склеивал ряды
 print('rows', rows)
+if GRID:
+    gc, gr = map(int, GRID.split('x'))
+    H, W = ink.shape
+    rows = [(round(r * H / gr), round((r + 1) * H / gr)) for r in range(gr)]
 k = 0
 for (y0, y1) in rows:
     cols = bands(ink[y0:y1].sum(axis=0) > 1, 40, 20)
+    if GRID:
+        cols = [(round(c * W / gc), round((c + 1) * W / gc)) for c in range(gc)]
     for (x0, x1) in cols:
         if k >= len(names):
             break

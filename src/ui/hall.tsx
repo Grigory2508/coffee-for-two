@@ -34,12 +34,12 @@ const ratio = (name: string) => ART_RATIO[sprite(name)] ?? 1;
 
 export const HALL_ART: Record<HallSlot, HPlace> = {
   window1: { x: 33.8, bottom: hAt(85), wcm: 90, hang: true },
-  window2: { x: 79, bottom: hAt(85), wcm: 90, hang: true },
+  window2: { x: 75.5, bottom: hAt(85), wcm: 90, hang: true },
   picture: { x: 56.4, bottom: hAt(125), h: [50, 60, 70], hang: true },
   sconces: { x: 56.4, bottom: hAt(158), h: [25, 30, 35], hang: true, twin: [47.4, 65.4] },
   chandelier: { x: 56.4, bottom: [hAt(255), hAt(240), hAt(225)], h: [45, 60, 75], hang: true },
   poster: { x: 91.5, bottom: hAt(175), h: [55, 55, 55], hang: true },
-  shelf: { x: 91.5, bottom: hAt(125), h: [40, 40, 40], hang: true },
+  shelf: { x: 91.5, bottom: hAt(125), h: [26, 40, 28], hang: true },
   plant: { x: 95.5, bottom: FLOOR + 2, h: [70, 85, 110] },
   table1: { x: 56.4, bottom: FLOOR + 2, h: [85, 88, 90] },
   table2: { x: 37.6, bottom: 98, h: [85, 88, 88] },
