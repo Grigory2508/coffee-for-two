@@ -166,20 +166,21 @@ export function HallTab() {
   const { state, me, send } = useGame();
   const [slot, setSlot] = useState<HallSlot | 'wall' | 'floor'>('table1');
   const hall = state.hall;
-  const isManager = state.players.find((p) => p.id === me.id)?.role === 'manager';
+  // зал обставляет любой сотрудник (Гриша, 16.11); деньги — из бюджета кофейни
+  const canEdit = !!state.players.find((p) => p.id === me.id && !p.isNpc);
   const eff = slotEffects(state);
   const items = slot === 'wall' || slot === 'floor' ? [] : HALL_ITEMS.filter((d) => d.slot === slot);
   return (
     <>
       <div class="card hero">
-        <HallScene placed={hall.placed} wall={hall.wall} floor={hall.floor} name={state.name} onSlot={isManager ? setSlot : undefined} active={slot === 'wall' || slot === 'floor' ? undefined : slot} />
+        <HallScene placed={hall.placed} wall={hall.wall} floor={hall.floor} name={state.name} onSlot={canEdit ? setSlot : undefined} active={slot === 'wall' || slot === 'floor' ? undefined : slot} />
         <div class="hero-body">
           <div class="hero-title">🪑 {t('hallTitle')}</div>
           <div class="muted small">{t('cafeDecorEffect', { s: (eff.patienceMs / 1000).toFixed(1), p: Math.round(eff.satBonus * 100) })}</div>
-          {!isManager && <div class="locked-note">🔒 {t('cafeDecorManager')}</div>}
+          {canEdit && <div class="muted small">{t('hallFromBudget')}</div>}
         </div>
       </div>
-      {isManager && (
+      {canEdit && (
         <div class="card">
           <div class="chips">
             {HALL_ORDER.map((sl) => (

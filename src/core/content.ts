@@ -110,6 +110,8 @@ export const CONFIG = {
   maxPendingApplications: 3,
   officeHoldMs: 3 * 60_000,
   basePatienceMs: 16_000,
+  /** Множитель терпения у стойки: ×2 по плейтесту Гриши («не успеваю»). */
+  patienceMult: 2,
   startMoney: 300,
   startStock: { ...emptyStock(), beans: 20, milk_regular: 20, cream_regular: 0, cups: 20 } as Record<StockId, number>,
   // Доля гостей, которые берут кофе с собой (им нужен бумажный стакан со склада)

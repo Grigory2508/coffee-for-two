@@ -750,7 +750,7 @@ export function makeShiftPlan(s: CafeState, actor: PlayerId, now: number): Shift
       order = weighted(rnd, list.map((d) => [d, DRINKS[d].pop] as [DrinkId, number]));
       substitute = true;
     }
-    const g: ShiftGuest = { order, milk: 'regular', patienceMs: patience + Math.round(rnd() * 4000), arriveMs: 0 };
+    const g: ShiftGuest = { order, milk: 'regular', patienceMs: Math.round((patience + rnd() * 4000) * CONFIG.patienceMult), arriveMs: 0 };
     if (substitute) g.substitute = true;
     if (DRINKS[order].recipe.dairy) {
       let wantMilk: MilkKind = 'regular';
@@ -1182,8 +1182,7 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       break;
     }
     case 'buyHall': {
-      // Зал — развитие кофейни: обставляет управляющий из бюджета
-      requireRole(p, 'manager');
+      // Зал обставляет любой сотрудник из бюджета кофейни
       const item = HALL_BY_ID[cmd.id];
       if (!item) throw new GameError('bad_item');
       if (s.hall.owned.includes(item.id)) throw new GameError('owned');
@@ -1196,7 +1195,6 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
       break;
     }
     case 'placeHall': {
-      requireRole(p, 'manager');
       if (cmd.id === null) {
         if (cmd.slot === 'window1' || cmd.slot === 'window2') throw new GameError('bad_item'); // без окна нельзя
         delete s.hall.placed[cmd.slot];
@@ -1209,7 +1207,6 @@ export function apply(state: CafeState, env: CommandEnvelope): ApplyResult {
     }
     case 'setHallWall':
     case 'setHallFloor': {
-      requireRole(p, 'manager');
       const wall = cmd.type === 'setHallWall';
       const item = wall ? HALL_WALL_BY_ID[cmd.id] : HALL_FLOOR_BY_ID[cmd.id];
       if (!item) throw new GameError('bad_item');

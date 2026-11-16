@@ -225,16 +225,19 @@ describe('смена', () => {
     expect(r.state.marketing!.shiftsLeft).toBe(2);
   });
 
-  it('зал: обставляет управляющий из бюджета, гости терпеливее и довольнее', () => {
+  it('зал: обставляет любой сотрудник из бюджета, гости терпеливее и довольнее', () => {
     let s = join(fresh('barista'));
     s.money = 5000;
     expect(s.hall.placed).toMatchObject({ window1: 'window1-0', window2: 'window2-0', table1: 'table1-0' });
     const before = slotEffects(s);
-    expect(() => run(s, 'a', { type: 'buyHall', id: 'plant-2' }, T0)).toThrow('wrong_role');
+    // бариста тоже может обставлять зал
+    s = run(s, 'a', { type: 'buyHall', id: 'shelf-0' }, T0).state;
+    expect(s.money).toBe(5000 - 200);
+    s.money = 5000;
     s = run(s, 'b', { type: 'buyHall', id: 'plant-2' }, T0).state;
     expect(s.money).toBe(5000 - 900);
     expect(s.hall.placed.plant).toBe('plant-2');
-    expect(slotEffects(s).patienceMs - before.patienceMs).toBe(700);
+    expect(slotEffects(s).patienceMs - before.patienceMs).toBe(700 + 200); // полка + олива
     s = run(s, 'b', { type: 'placeHall', slot: 'plant', id: null }, T0).state;
     expect(s.hall.placed.plant).toBeUndefined();
     expect(() => run(s, 'b', { type: 'placeHall', slot: 'window1', id: null }, T0)).toThrow('bad_item');
@@ -246,7 +249,7 @@ describe('смена', () => {
     s = run(s, 'b', { type: 'setHallWall', id: 'hw-brick' }, T0).state;
     expect(s.money).toBe(5000 - 900 - 900);
     s = run(s, 'b', { type: 'setHallFloor', id: 'hf-tile' }, T0).state;
-    expect(slotEffects(s).satBonus - before.satBonus).toBeCloseTo(0.015 + 0.01, 5);
+    expect(slotEffects(s).satBonus - before.satBonus).toBeCloseTo(0.015 + 0.01 + 0.003, 5); // стены + пол + полка
   });
 
   it('миграция: старый декор у стойки переезжает в зал, непарное — деньгами', () => {

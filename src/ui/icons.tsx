@@ -22,7 +22,23 @@ export function Img({ name, size = 24, alt = '', class: cls = '' }: { name: stri
 
 export const StockIcon = ({ k, size = 24 }: { k: StockId; size?: number }) => <Img name={stockArt(k)} size={size} />;
 export const DessertIcon = ({ d, size = 24 }: { d: DessertId; size?: number }) => <Img name={`ds-${d}`} size={size} />;
-export const MilkIcon = ({ kind, type = 'milk', size = 24 }: { kind: MilkKind; type?: DairyType; size?: number }) => <Img name={`${type}-${kind}`} size={size} />;
+/** Значок вида молока поверх пакета: крупный, чтобы виды различались и на маленьком размере. */
+export const MILK_BADGE: Record<MilkKind, { sym: string; bg: string }> = {
+  regular: { sym: '🐄', bg: '#e6f0fb' },
+  oat: { sym: '🌾', bg: '#f6e3bf' },
+  lactoFree: { sym: '🚫', bg: '#dff1dc' },
+  coconut: { sym: '🥥', bg: '#efe4da' },
+};
+export const MilkIcon = ({ kind, type = 'milk', size = 24, badge = true }: { kind: MilkKind; type?: DairyType; size?: number; badge?: boolean }) => (
+  <span class="milk-icon" style={{ width: `${size}px`, height: `${size}px` }}>
+    <Img name={`${type}-${kind}`} size={size} />
+    {badge && (
+      <i class="milk-badge" style={{ background: MILK_BADGE[kind].bg, fontSize: `${Math.max(9, Math.round(size * 0.42))}px` }}>
+        {MILK_BADGE[kind].sym}
+      </i>
+    )}
+  </span>
+);
 export const Coin = ({ size = 16 }: { size?: number }) => <Img name="ui-coin" size={size} class="inline" />;
 export const Bolt = ({ size = 16 }: { size?: number }) => <Img name="ui-energy" size={size} class="inline" />;
 export const StarIcon = ({ size = 16 }: { size?: number }) => <Img name="ui-star" size={size} class="inline" />;

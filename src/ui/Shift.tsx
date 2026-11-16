@@ -71,7 +71,6 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const [timer, setTimer] = useState<Timer | null>(null);
   const [tray, setTray] = useState<DessertId | null>(null);
   const [panel, setPanel] = useState<'drink' | 'dessert'>('drink');
-  const [showRecipe, setShowRecipe] = useState(false);
   const [stock, setStock] = useState<Record<StockId, number>>({ ...state.stock });
   const [popups, setPopups] = useState<Popup[]>([]);
   const [streak, setStreak] = useState(0);
@@ -328,7 +327,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
                 >
                   <MilkIcon kind={d.kind} type={d.type} size={30} />
                   <span>{L(MILKS[d.kind].short)}</span>
-                  <i class="temp-dot">{d.temp === 'hot' ? '♨' : '❄'}</i>
+                  <i class="temp-dot">{d.temp === 'hot' ? '♨ ' + t('hot') : '❄ ' + t('cold')}</i>
                   {!open ? <i class="opt-n">🔒</i> : n <= 3 && <i class="opt-n">{n > 0 ? n : t('outOf')}</i>}
                 </button>
               );
@@ -501,23 +500,14 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
           </div>
           <div class="step-title">
             {step ? `${STEP_NUM[step]}. ${L(STEP_NAMES[step])}` : t('stepsOver')}
-            {sel && (
-              <button class="link small" onClick={() => setShowRecipe(!showRecipe)}>
-                📖
-              </button>
-            )}
           </div>
-          {showRecipe && recipeSteps && (
-            <div class="recipe-peek small">
-              {L(DRINKS[sel!.order].name)}: {recipeLine(recipeSteps)}
-            </div>
-          )}
+          {sel && recipeSteps && <RecipeStrip want={recipeSteps} cup={cup} step={step} name={L(DRINKS[sel.order].name)} />}
           <div class="counter-actions">
             <button class="btn ghost small" disabled={!cup.vessel || !!timer} onClick={pourOut} aria-label={t('pour')}>
               🗑
             </button>
-            <button class="btn ghost small" disabled={!step || step === 'vessel' || step === 'base' || !!timer} onClick={skip}>
-              {t('skipStep')}
+            <button class="btn small skip-btn" disabled={!step || step === 'vessel' || step === 'base' || !!timer} onClick={skip}>
+              ⏭ {t('skipStep')}
             </button>
             <button class="btn primary serve-btn" disabled={!canServe} onClick={serve}>
               {t('serve')}
@@ -558,17 +548,29 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   );
 }
 
-/** Рецепт строкой: подсказка для того, кто учится (по кнопке 📖). */
-function recipeLine(c: Cup): string {
-  const parts: string[] = [];
-  if (c.vessel) parts.push(L(VESSELS[c.vessel].name));
-  if (c.ice) parts.push(t('iceWord'));
-  if (c.base) parts.push(L(BASES[c.base].name));
-  if (c.flavor) parts.push(L(FLAVORS[c.flavor].name));
-  if (c.dairy) parts.push(`${c.dairy.type === 'milk' ? L(MILKS[c.dairy.kind].name) : L(MILKS[c.dairy.kind].cream)} ${c.dairy.temp === 'hot' ? '♨' : '❄'}`);
-  if (c.texture) parts.push(L(TEXTURES[c.texture]));
-  if (c.whip) parts.push(t('whipDrink'));
-  if (c.water) parts.push(t('addWater'));
-  if (c.topping) parts.push(L(TOPPINGS[c.topping].name));
-  return parts.join(' → ');
+/** Рецепт выбранного гостя: шаги по порядку, сделанные — ✓, текущий подсвечен. */
+function RecipeStrip({ want, cup, step, name }: { want: Cup; cup: Cup; step: StepId | null; name: string }) {
+  const items: { id: StepId; label: string }[] = [];
+  if (want.vessel) items.push({ id: 'vessel', label: L(VESSELS[want.vessel].name) });
+  if (want.ice) items.push({ id: 'ice', label: t('iceWord') });
+  if (want.base) items.push({ id: 'base', label: L(BASES[want.base].name) });
+  if (want.flavor) items.push({ id: 'flavor', label: L(FLAVORS[want.flavor].name) });
+  if (want.dairy) items.push({ id: 'dairy', label: `${want.dairy.type === 'milk' ? L(MILKS[want.dairy.kind].name) : L(MILKS[want.dairy.kind].cream)} ${want.dairy.temp === 'hot' ? '♨' : '❄'}` });
+  if (want.texture) items.push({ id: 'texture', label: L(TEXTURES[want.texture]) });
+  if (want.whip) items.push({ id: 'whip', label: t('whipDrink') });
+  if (want.water) items.push({ id: 'water', label: t('addWater') });
+  if (want.topping) items.push({ id: 'topping', label: L(TOPPINGS[want.topping].name) });
+  const has = (id: StepId) => (cup as Record<string, unknown>)[id] != null && (cup as Record<string, unknown>)[id] !== false;
+  return (
+    <div class="recipe-strip" aria-label={name}>
+      <b>{name}:</b>
+      {items.map((it) => (
+        <span class={`rs-step ${has(it.id) ? 'done' : ''} ${step === it.id ? 'now' : ''} ${it.id === 'dairy' && want.dairy ? want.dairy.temp : ''}`}>
+          {has(it.id) ? '✓ ' : ''}
+          {it.label}
+        </span>
+      ))}
+    </div>
+  );
 }
+
