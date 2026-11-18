@@ -76,7 +76,7 @@ export function HallScene({ placed, wall, floor, name, onSlot, active }: { place
         <div class={`layer window-light ${placed[s] === `${s}-2` ? 'stained' : ''}`} style={{ left: `${HALL_ART[s].x}%`, width: `${(HALL_ART[s].wcm ?? 90) * HCMW * 1.6}%`, top: `${FLOOR}%` }} />
       ))}
       <Door name={name} />
-      <img class="layer room-floor" src={art(fl.id === 'hf-oak' || !ART_RATIO[`hall-floor-${fl.id}`] ? 'room-floor-hall' : `hall-floor-${fl.id}`)} style={fl.id === 'hf-oak' || ART_RATIO[`hall-floor-${fl.id}`] ? undefined : { filter: FLOOR_TINT[fl.id] }} alt="" draggable={false} />
+      <img class="layer room-floor" src={art(ART_RATIO[`hall-floor-${fl.id}`] ? `hall-floor-${fl.id}` : 'room-floor-hall')} style={ART_RATIO[`hall-floor-${fl.id}`] || fl.id === 'hf-oak' ? undefined : { filter: FLOOR_TINT[fl.id] }} alt="" draggable={false} />
       <div class="layer baseboard-shade" style={{ top: `${FLOOR - 1.2}%` }} />
       {lit('sconces') && HALL_ART.sconces.twin!.map((x) => <div class="layer sconce-wash" style={{ left: `${x}%`, bottom: `${100 - hAt(140)}%` }} />)}
       {LAYER_ORDER.map((slot) => {
@@ -135,9 +135,9 @@ function Wainscot({ accent }: { accent: string }) {
     <svg class="layer-base" viewBox="0 0 400 300" preserveAspectRatio="none" aria-hidden="true">
       <rect x="0" y={top} width="400" height={fl - top} fill={accent} opacity="0.55" />
       {Array.from({ length: 16 }, (_, i) => (
-        <rect x={i * 25 + 3} y={top + 6} width="19" height={fl - top - 12} rx="1.5" fill="none" stroke="#0000001f" stroke-width="1" />
+        <rect x={i * 25 + 3} y={top + 6} width="19" height={fl - top - 12} rx="1.5" fill="none" stroke="#5b3b2b40" stroke-width="1" />
       ))}
-      <rect x="0" y={top - 2.5} width="400" height="3.5" fill="#00000026" />
+      <rect x="0" y={top - 3} width="400" height="4" fill="#c98f5e" stroke="#5b3b2b" stroke-width="0.8" />
       <rect x="0" y="0" width="400" height="5" fill="#00000014" />
     </svg>
   );

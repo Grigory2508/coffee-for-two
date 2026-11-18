@@ -807,12 +807,12 @@ const HW = (id: string, ru: string, en: string, tier: 0 | 1 | 2, pattern: WallPa
   id, name: { ru, en }, tier, cost: def ? 0 : [200, 450, 900][tier], joy: 0, sat: def ? 0 : [0.005, 0.01, 0.015][tier], pattern, base, ink, accent, rooms: [], def,
 });
 export const HALL_WALLS: (Wallpaper & HallSurface)[] = [
-  HW('hw-latte', 'Латте', 'Latte', 0, 'plain', '#efe2cc', '#e3d2b5', undefined, true),
-  HW('hw-cream-stripe', 'Кремовая полоска', 'Cream stripes', 0, 'stripes', '#f7ead2', '#ecdab9'),
-  HW('hw-terracotta', 'Терракота', 'Terracotta', 1, 'plain', '#e8c4ae', '#dcb096'),
-  HW('hw-green-panel', 'Зелёные панели', 'Green panels', 1, 'panel', '#f1ead9', '#6f8f74', '#9fb89a'),
-  HW('hw-brick', 'Кирпич', 'Brick', 2, 'brick', '#c98b70', '#e8d6c4'),
-  HW('hw-navy-panel', 'Синие панели', 'Navy panels', 2, 'panel', '#efe6d4', '#3f5a73', '#7f97ad'),
+  HW('hw-latte', 'Латте', 'Latte', 0, 'plain', '#f8e7d0', '#efd9bb', undefined, true),
+  HW('hw-cream-stripe', 'Кремовая полоска', 'Cream stripes', 0, 'stripes', '#fbf1d9', '#f2e1b8'),
+  HW('hw-terracotta', 'Терракота', 'Terracotta', 1, 'plain', '#f6cdb9', '#ecb9a2'),
+  HW('hw-green-panel', 'Зелёные панели', 'Green panels', 1, 'panel', '#fbf1dd', '#93b47c', '#b9d3a1'),
+  HW('hw-brick', 'Кирпич', 'Brick', 2, 'brick', '#e3a58b', '#f6e3d2'),
+  HW('hw-navy-panel', 'Синие панели', 'Navy panels', 2, 'panel', '#f8efe0', '#6f86b8', '#a9bbdf'),
 ];
 export const HALL_FLOORS: HallSurface[] = [
   { id: 'hf-oak', name: { ru: 'Дубовый паркет', en: 'Oak parquet' }, tier: 0, cost: 0, sat: 0, def: true },
