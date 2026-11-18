@@ -67,7 +67,16 @@ const pos = (x: number, w: number, bottom?: number, top?: number) => ({
   ...(bottom !== undefined ? { bottom: `${100 - bottom}%` } : { top: `${top}%` }),
 });
 
+/** Голова гостя (кружок из спрайта guest-*): постоянные — guest-<id>. */
+export function GuestHead({ name, size = 32 }: { name: string; size?: number }) {
+  return <span class="guest-head" style={{ width: `${size}px`, height: `${size}px`, backgroundImage: `url(${art(name)})` }} />;
+}
+
+/** Стойка в новом стиле (cozy): верх фона scene-counter. Оборудование по уровням вернётся слоями на этапе 4. */
+export const COZY_COUNTER = true;
+
 export function CafeArt({ levels, decor, onSlot, active }: { levels?: Partial<Record<CafeSlot, number>>; decor?: Partial<Record<CafeDecorSlot, string>>; onSlot?: (s: CafeDecorSlot) => void; active?: CafeDecorSlot }) {
+  if (COZY_COUNTER) return <img class="scene scene-art cozy-counter-hero" src={art('scene-counter')} alt="" draggable={false} />;
   if (!levels) return <img class="scene scene-art" src={art('scene-cafe')} alt="" draggable={false} />;
   const lv = (k: CafeSlot) => Math.min(3, Math.max(1, levels[k] ?? 1));
   const items = Object.values(decor ?? {})

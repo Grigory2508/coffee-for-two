@@ -13,6 +13,7 @@
     "sync-server": "node scripts/sync-server.mjs"
   },
   "dependencies": {
+    "@fontsource/nunito": "^5.3.0",
     "preact": "^11.1.1"
   },
   "devDependencies": {
