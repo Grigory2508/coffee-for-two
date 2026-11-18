@@ -2465,8 +2465,21 @@ button.hud-chip {
 .ghost-tag { visibility: hidden; }
 
 /* ---------- смена без столиков ---------- */
-.shift-scene { flex: 1; min-height: 80px; display: flex; align-items: center; overflow: hidden; border-radius: var(--radius); }
-.shift-scene .scene { width: 100%; }
+.shift-scene { flex: 1; min-height: 150px; position: relative; overflow: hidden; border-radius: var(--radius); }
+/* Стойка: картинка 780×1398, край прилавка на 66,5 % высоты. Край держим в 30 px над низом блока. */
+.counter-scene { container-type: size; background: #f9cfd0; border: 3px solid var(--outline, #5b3b2b); }
+.cs-inner { position: absolute; left: 0; width: 100%; aspect-ratio: 780 / 1398; bottom: calc(30px - 60.05cqw); }
+.cs-bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cs-front { position: absolute; left: 0; top: 66.5%; width: 100%; height: auto; }
+.cs-guest { position: absolute; left: 50%; bottom: 26px; transform: translateX(-56%); height: min(58cqw, calc(100% - 34px)); width: auto; animation: cs-in 0.35s ease-out; }
+@keyframes cs-in { from { transform: translate(-56%, 18px); opacity: 0; } to { transform: translateX(-56%); opacity: 1; } }
+.cs-bubble { position: absolute; right: 8px; top: 8px; max-width: 46%; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; background: #fff7ea; border: 3px solid var(--outline, #5b3b2b); border-radius: 18px; color: var(--outline, #5b3b2b); }
+.cs-who { font-size: 11px; font-weight: 800; opacity: 0.75; }
+.cs-drink { font-size: 15px; font-weight: 900; line-height: 1.1; }
+.cs-extras { display: flex; flex-wrap: wrap; gap: 4px; }
+.cs-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 10px; border: 2px solid var(--outline, #5b3b2b); background: #ffe2c8; }
+.guest-head, .guest-face span.guest-head { display: inline-block; border-radius: 50%; background-color: #fff7ea; background-repeat: no-repeat; background-size: 170% auto; background-position: 50% 6%; font-size: 0; }
+.queue-heads { display: inline-flex; gap: 2px; vertical-align: middle; }
 
 /* ---------- 5 вкладок в одну строку, сегменты в одну строку ---------- */
 .tabs { grid-template-columns: repeat(5, 1fr) !important; }
@@ -2490,7 +2503,7 @@ button.hud-chip {
 .order-card.angry { animation: wobble 0.5s infinite; }
 .order-card.empty { grid-column: 1 / -1; justify-content: center; cursor: default; min-height: 60px; }
 .order-card .guest-face { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; }
-.order-card .guest-face span { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--paper); font-size: 22px; }
+.order-card .guest-face .guest-head { box-shadow: 0 0 0 2px var(--paper); }
 .order-name { font-weight: 800; font-size: 12.5px; line-height: 1.15; text-align: center; }
 .order-extras { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 3px; font-size: 11px; }
 .order-milk, .order-dessert { display: inline-flex; align-items: center; gap: 2px; padding: 1px 5px; border-radius: 8px; background: #f3ead9; }
@@ -2611,3 +2624,11 @@ img.decor-icon { width: 100%; height: 56px; object-fit: contain; }
 .skip-btn:disabled { border-color: var(--line); color: var(--muted, #a89a8c); background: #f6efe6; }
 .steps-col .counter-actions .skip-btn { flex: 1 1 0; min-width: 0; padding: 6px 6px; font-size: 12px; line-height: 1.1; white-space: normal; }
 .steps-col .counter-actions .serve-btn { flex: 1.2 1 0; }
+
+/* Новый стиль смены: карточки у стойки — компактные вкладки (детали заказа — в реплике гостя) */
+.counter-row .order-card { flex-direction: row; justify-content: flex-start; min-height: 54px; padding: 5px 6px; gap: 6px; text-align: left; }
+.counter-row .order-card .order-extras { display: none; }
+.counter-row .order-card .order-name { font-size: 12px; line-height: 1.1; }
+.counter-row .order-card .guest-name { font-size: 10px; }
+.counter-row .order-card > div:not(.guest-face) { min-width: 0; }
+.counter-row .order-card .guest-face { flex: none; }

@@ -33,14 +33,15 @@ import { L, t } from '../i18n';
 import { now as clockNow } from '../platform/clock';
 import { tg } from '../platform/telegram';
 import { CupView } from './cup';
-import { CafeArt, DessertIcon, Img, MilkIcon } from './icons';
+import { art, DessertIcon, Img, MilkIcon } from './icons';
 import { useGame } from './game';
 
 // Смена: до трёх гостей у стойки (у них тикает терпение), остальные ждут в очереди без таймера.
 // Напиток собирается по шагам 1–8, как в настоящей кофейне; конец сборки решает игрок кнопкой «Подать».
 // Внизу две панели: «Напиток» (текущий шаг) и «Десерты» (витрина 4×4) — переключаются свайпом или стрелкой.
 
-const GUEST_FACES = ['🧑', '👩', '👨‍🦱', '👩‍🦰', '🧔', '👱‍♀️', '🧑‍🎓', '👨‍💼'];
+/** Случайные гости — спрайты guest-g1…g9; постоянные — guest-<id>. */
+const GUEST_POOL = 9;
 const SEG_ICON: Record<ShiftSegment['kind'], string> = { morning: '🌅', day: '☀️', lunch: '🍽', evening: '🌙' };
 
 interface Popup {
@@ -142,10 +143,13 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     }
   }, [elapsed]);
 
-  const face = (i: number) => {
+  const guestArt = (i: number) => {
     const g = plan.guests[i];
-    return g.regular ? REGULARS[g.regular].avatar : GUEST_FACES[(plan.seed + i) % GUEST_FACES.length];
+    return g.regular ? `guest-${g.regular}` : `guest-g${((plan.seed + i) % GUEST_POOL) + 1}`;
   };
+  const Head = ({ i, size }: { i: number; size: number }) => (
+    <span class="guest-head" style={{ width: `${size}px`, height: `${size}px`, backgroundImage: `url(${art(guestArt(i))})` }} />
+  );
 
   // Склад с учётом того, что уже в чашке и на подносе
   const inUse = cupUsage(cup);
@@ -436,10 +440,12 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
           return (
             <button class={`order-card ${selected === c.i ? 'on' : ''} ${lft < 0.25 ? 'angry' : ''}`} key={c.i} onClick={() => setSelected(c.i)} data-want={JSON.stringify({ ...expectedCup(g), ds: g.dessert ?? null })}>
               <div class="guest-face" style={{ background: `conic-gradient(${ring} ${lft * 360}deg, var(--line) 0)` }}>
-                <span>{face(c.i)}</span>
+                <Head i={c.i} size={36} />
               </div>
-              {g.regular && <div class="guest-name small">★ {L(REGULARS[g.regular].name)}</div>}
-              <div class="order-name">{L(DRINKS[g.order].name)}</div>
+              <div class="order-text">
+                {g.regular && <div class="guest-name small">★ {L(REGULARS[g.regular].name)}</div>}
+                <div class="order-name">{L(DRINKS[g.order].name)}</div>
+              </div>
               <div class="order-extras">
                 {dairy && g.milk !== 'regular' && (
                   <span class="order-milk">
@@ -460,14 +466,44 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
       </div>
       {queue.length > 0 && (
         <div class="queue-strip small">
-          {t('inQueue')}: {queue.slice(0, 8).map((q) => face(q.i)).join(' ')}
+          {t('inQueue')}:{' '}
+          <span class="queue-heads">
+            {queue.slice(0, 8).map((q) => (
+              <Head i={q.i} size={22} />
+            ))}
+          </span>
           {queue.length > 8 && ` +${queue.length - 8}`}
         </div>
       )}
 
-      {/* Зал кофейни с декором — фон между гостями и прилавком */}
-      <div class="shift-scene">
-        <CafeArt levels={state.levels} />
+      {/* Стойка: фон, выбранный гость за прилавком, передняя часть прилавка поверх, реплика с заказом */}
+      <div class="shift-scene counter-scene">
+        <div class="cs-inner">
+          <img class="cs-bg" src={art('scene-counter')} alt="" draggable={false} />
+        </div>
+        {sel && selected !== null && <img class="cs-guest" key={selected} src={art(guestArt(selected))} alt="" draggable={false} />}
+        <div class="cs-inner">
+          <img class="cs-front" src={art('scene-counter-front')} alt="" draggable={false} />
+        </div>
+        {sel && (
+          <div class="cs-bubble">
+            {sel.regular && <span class="cs-who">★ {L(REGULARS[sel.regular].name)}</span>}
+            <span class="cs-drink">{L(DRINKS[sel.order].name)}</span>
+            <span class="cs-extras">
+              {DRINKS[sel.order].recipe.dairy && sel.milk !== 'regular' && (
+                <span class="cs-chip">
+                  <MilkIcon kind={sel.milk} type={DRINKS[sel.order].recipe.dairy!.type} size={16} /> {L(MILKS[sel.milk].short)}
+                </span>
+              )}
+              {sel.dessert && (
+                <span class="cs-chip">
+                  + <DessertIcon d={sel.dessert} size={18} />
+                </span>
+              )}
+              <span class="cs-chip">{sel.takeaway ? '🥤' : '☕'}</span>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Прилавок: чашка, шаги, «Пропустить» и «Подать» */}
