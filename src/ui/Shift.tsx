@@ -29,7 +29,7 @@ import {
 } from '../core/content';
 import { availableMilks, guestPrice, slotEffects } from '../core/engine';
 import type { GuestResult, ShiftPlan, ShiftSegment } from '../core/types';
-import { L, t } from '../i18n';
+import { L, nb, t } from '../i18n';
 import { now as clockNow } from '../platform/clock';
 import { tg } from '../platform/telegram';
 import { CupView } from './cup';
@@ -331,7 +331,8 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
                 >
                   <MilkIcon kind={d.kind} type={d.type} size={30} />
                   <span>{L(MILKS[d.kind].short)}</span>
-                  <i class="temp-dot">{d.temp === 'hot' ? '♨ ' + t('hot') : '❄ ' + t('cold')}</i>
+                  <b class="dtype">{t(d.type === 'milk' ? 'milkWord' : 'creamWord')}</b>
+                  <i class="temp-dot">{d.temp === 'hot' ? '♨' : '❄'}</i>
                   {!open ? <i class="opt-n">🔒</i> : n <= 3 && <i class="opt-n">{n > 0 ? n : t('outOf')}</i>}
                 </button>
               );
@@ -444,7 +445,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
               </div>
               <div class="order-text">
                 {g.regular && <div class="guest-name small">★ {L(REGULARS[g.regular].name)}</div>}
-                <div class="order-name">{L(DRINKS[g.order].name)}</div>
+                <div class="order-name">{nb(L(DRINKS[g.order].name))}</div>
               </div>
               <div class="order-extras">
                 {dairy && g.milk !== 'regular' && (
@@ -488,7 +489,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         {sel && (
           <div class="cs-bubble">
             {sel.regular && <span class="cs-who">★ {L(REGULARS[sel.regular].name)}</span>}
-            <span class="cs-drink">{L(DRINKS[sel.order].name)}</span>
+            <span class="cs-drink">{nb(L(DRINKS[sel.order].name))}</span>
             <span class="cs-extras">
               {DRINKS[sel.order].recipe.dairy && sel.milk !== 'regular' && (
                 <span class="cs-chip">
@@ -537,7 +538,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
           <div class="step-title">
             {step ? `${STEP_NUM[step]}. ${L(STEP_NAMES[step])}` : t('stepsOver')}
           </div>
-          {sel && recipeSteps && <RecipeStrip want={recipeSteps} cup={cup} step={step} name={L(DRINKS[sel.order].name)} />}
+          {sel && recipeSteps && <RecipeStrip want={recipeSteps} cup={cup} step={step} name={nb(L(DRINKS[sel.order].name))} />}
           <div class="counter-actions">
             <button class="btn ghost small" disabled={!cup.vessel || !!timer} onClick={pourOut} aria-label={t('pour')}>
               🗑

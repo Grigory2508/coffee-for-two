@@ -147,7 +147,7 @@ await a.waitForSelector('.hud');
 }
 await tab(a, 'Кофейня');
 await a.getByRole('button', { name: /Дела/ }).first().click();
-await a.getByRole('button', { name: /За/ }).first().click();
+await a.getByRole('button', { name: '👍 За' }).click();
 await a.waitForTimeout(400);
 await shot(a, '16g-brand-changed');
 await tab(a, 'Рейтинг');

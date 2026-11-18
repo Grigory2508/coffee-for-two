@@ -9,7 +9,7 @@ import { ART_RATIO } from './artSizes';
 import { FLOOR } from './art';
 import { art } from './icons';
 import { LogoView } from './logo';
-import { WallLayer } from './wall';
+import { WallLayer, WallSwatch } from './wall';
 
 /** Видимая стена зала — 300 см (выше потолок квартиры): свой масштаб. */
 const HCM = FLOOR / 300;
@@ -231,9 +231,14 @@ export function HallTab() {
               const on = (slot === 'wall' ? hall.wall : hall.floor) === sf.id;
               return (
                 <div class="list-row">
+                  {slot === 'wall' ? (
+                    <WallSwatch w={sf as (typeof HALL_WALLS)[number]} />
+                  ) : (
+                    <img class="floor-swatch" src={art(ART_RATIO[`hall-floor-${sf.id}`] ? `hall-floor-${sf.id}` : 'room-floor-hall')} alt="" draggable={false} />
+                  )}
                   <div class="grow">
                     <div>{L(sf.name)}</div>
-                    {sf.sat > 0 && <div class="muted small">{t('cafeDecorEffect', { s: '0.0', p: (sf.sat * 100).toFixed(1) })}</div>}
+                    {sf.sat > 0 && <div class="muted small">{t('satOnly', { p: (sf.sat * 100).toFixed(1) })}</div>}
                   </div>
                   {on ? (
                     <span class="muted small">✓</span>

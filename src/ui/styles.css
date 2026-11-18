@@ -2705,3 +2705,59 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .story .guest-head { flex: none; }
 .room-dot { border: 2px solid var(--outline); font-weight: 800; }
 .room-dot.on { background: var(--butter); color: var(--ink); border-color: var(--outline); }
+
+/* ===== правки по UI-разбору 18.11 ===== */
+/* третичные кнопки — тот же толстый контур */
+.btn.ghost, .btn.small.ghost { border: 3px solid var(--outline); box-shadow: 0 3px 0 var(--outline); background: var(--paper); }
+.btn.ghost:disabled { box-shadow: none; }
+.icon-btn { min-width: 42px; padding: 6px 8px !important; }
+/* неактивные главные/вторичные кнопки смены — читаемые */
+.serve-btn:disabled, .skip-btn:disabled { background: #f3e6d4 !important; color: #9a7d68 !important; -webkit-text-stroke: 0 !important; opacity: 1; border-color: #c9a88f; box-shadow: none; }
+/* рецепт: текущий шаг — масло, сделанные — фисташка */
+.recipe-strip { background: var(--paper); border: 2px solid var(--outline); font-size: 12px; }
+.rs-step { border: 2px solid var(--outline); background: #fff; color: var(--ink); font-weight: 800; }
+.rs-step.done { background: #ddefc4; border-color: var(--outline); color: #3f6b2a; }
+.rs-step.now { background: var(--butter); border-color: var(--outline); color: var(--ink); box-shadow: 0 0 0 3px #fff1b8; }
+.rs-step.hot:not(.done):not(.now) { background: #ffe2c8; border-color: var(--outline); }
+.rs-step.cold:not(.done):not(.now) { background: #d6eef8; border-color: var(--outline); }
+/* молоко/сливки на плитке + метки крупнее */
+.dairy-grid .dtype { font-size: 10px; font-weight: 900; color: var(--muted); line-height: 1; text-transform: lowercase; }
+.dairy-grid .temp-dot { font-size: 13px !important; color: var(--ink); padding: 0 !important; }
+.opt-n { font-size: 11px; font-weight: 800; color: var(--muted); }
+/* заблокированные плитки: подпись читается, картинка серая, замок крупнее */
+.opt.locked { color: #8a7768; opacity: 1; }
+.opt.locked img { filter: grayscale(1); opacity: 0.45; }
+.opt:disabled:not(.locked) { opacity: 0.55; }
+/* аудитории меню дня: без зачёркивания, пунктир */
+.aud-chips .chip.off { opacity: 1; text-decoration: none; border-style: dashed; color: #9a7d68; background: transparent; }
+/* шаги: пропущенный — пунктир, без зачёркивания */
+.step-dot.skipped { text-decoration: none; border-style: dashed; background: #f6ecdf; }
+/* звёзды итогов: пустые тоже с контуром */
+.result-stars span { color: #fff1dc; -webkit-text-stroke: 2px var(--outline); }
+/* склад: имя в одну строку, прогноз отдельной строкой, мало — красная полоса */
+.stock-row { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; }
+.stock-name { display: block; line-height: 1.15; }
+.stock-note { margin: 1px 0 0; }
+.stock-row .num { white-space: nowrap; }
+.stock-row.low .stock-have { background: #e46a6a; }
+.stock-bar { border: 2px solid var(--outline); background: #f3e6d4; }
+.stepper button { width: 40px; height: 40px; border: 3px solid var(--outline); border-radius: 12px; background: var(--paper); font-weight: 900; color: var(--ink); box-shadow: 0 2px 0 var(--outline); }
+.stepper button:disabled { opacity: 0.4; box-shadow: none; }
+.basket-bar b { white-space: nowrap; }
+/* магазин самоцветов: карточки нажимаемые */
+.gem-pack { border: 3px solid var(--outline); box-shadow: 0 3px 0 var(--outline); }
+/* мятные теги → палитра */
+.tag { background: var(--butter); color: var(--ink); border: 2px solid var(--outline); font-weight: 800; font-size: 11.5px; }
+/* превью стен и пола зала */
+.list-row .wall-swatch { flex: none; width: 48px; height: 48px; aspect-ratio: auto; border-radius: 10px; overflow: hidden; border: 2px solid var(--outline); display: block; position: relative; }
+.floor-swatch { flex: none; width: 48px; height: 48px; object-fit: cover; object-position: 50% 70%; border-radius: 10px; border: 2px solid var(--outline); }
+.muted, .small.muted { color: #82614f; }
+.list-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 2px dashed var(--line); }
+.list-row:first-of-type { border-top: 0; }
+.list-row > .decor-icon { flex: none; width: 64px; height: 56px; object-fit: contain; }
+.list-row .btn { flex: none; }
+.swatches { gap: 8px !important; }
+.swatch { width: 40px !important; height: 40px !important; border: 3px solid var(--outline) !important; border-radius: 50% !important; position: relative; }
+.swatch.on { box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--butter) !important; }
+.swatch.on::after { content: '✓'; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 900; -webkit-text-stroke: 2px var(--outline); paint-order: stroke fill; }
+.room-dots { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }

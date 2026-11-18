@@ -705,15 +705,13 @@ function StockSeg() {
                     ? t('enoughForNone')
                     : t('enoughFor', { n: Math.floor(left) });
               return (
-                <div class="stock-row">
+                <div class={`stock-row ${!desserts && left < 2 ? 'low' : ''}`}>
                   <span class="icon">
                     <StockIcon k={k} size={36} />
                   </span>
                   <div class="grow">
-                    <div class="row">
-                      <b class="grow">{L(pack.name)}</b>
-                      <span class={`small ${!desserts && left < 1 ? 'danger-text' : 'muted'}`}>{note}</span>
-                    </div>
+                    <b class="stock-name">{L(pack.name)}</b>
+                    <div class={`stock-note small ${!desserts && left < 2 ? 'danger-text' : 'muted'}`}>{note}</div>
                     <div class="stock-bar">
                       <div class="stock-have" style={{ width: `${(have / cap) * 100}%` }} />
                       <div class="stock-add" style={{ width: `${((after - have) / cap) * 100}%` }} />
@@ -741,8 +739,8 @@ function StockSeg() {
             <b>{t('basketSummary', { n: packs, cost })}</b>
             {state.money < cost && <div class="small danger-text">{t('lacking', { n: cost - state.money })}</div>}
           </div>
-          <button class="btn ghost small" onClick={() => setBasket({})}>
-            {t('basketClear')}
+          <button class="btn ghost small icon-btn" onClick={() => setBasket({})} aria-label={t('basketClear')} title={t('basketClear')}>
+            🗑
           </button>
           <button class="btn primary" disabled={state.money < cost} onClick={go}>
             {t('basketGo', { e: CONFIG.managerTaskEnergy })}

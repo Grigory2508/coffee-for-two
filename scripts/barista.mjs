@@ -25,7 +25,7 @@ export async function baristaStep(page) {
     water: want.water ? 'true' : null,
     topping: want.topping,
   }[step];
-  const later = ['flavor', 'dairy', 'texture', 'whip', 'water', 'topping'];
+  const later = ['ice', 'base', 'flavor', 'dairy', 'texture', 'whip', 'water', 'topping'];
   const rest = later.slice(later.indexOf(step) + 1);
   const restNeeded = rest.some((k) => want[k]);
   if (!step || (!value && !restNeeded && step !== 'vessel' && step !== 'base')) {

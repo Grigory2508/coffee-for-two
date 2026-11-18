@@ -423,6 +423,9 @@ const ru = {
   cafeViewHall: '🪑 Зал',
   cafeViewInfo: '📊 Дела',
   cafeDecorEffect: 'Гости ждут на {s} с дольше · довольнее на {p}%',
+  satOnly: 'Гости довольнее на {p}%',
+  milkWord: 'молоко',
+  creamWord: 'сливки',
   cafeDecorNone: 'Пока пусто — декор делает гостей терпеливее и довольнее',
   cafeDecorManager: 'Обставляет зал управляющий — из бюджета кофейни',
   effPatience: '+{n} с терпения',
@@ -902,6 +905,9 @@ const en: Dict = {
   cafeViewHall: '🪑 Hall',
   cafeViewInfo: '📊 Business',
   cafeDecorEffect: 'Guests wait {s}s longer · {p}% happier',
+  satOnly: 'Guests {p}% happier',
+  milkWord: 'milk',
+  creamWord: 'cream',
   cafeDecorNone: 'Empty for now — decor makes guests more patient and happier',
   cafeDecorManager: 'The manager decorates the hall from the café budget',
   effPatience: '+{n}s patience',
@@ -1040,4 +1046,9 @@ export function fmtDuration(ms: number): string {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return m ? t('hm', { h, m }) : t('hours', { n: h });
+}
+
+/** Неразрывный пробел после коротких предлогов: «Капучино с корицей» не рвётся на «с». */
+export function nb(text: string): string {
+  return text.replace(/(^|\s)(с|в|и|к|у|о|на|без|со|за) /gi, '$1$2\u00a0');
 }
