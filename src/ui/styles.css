@@ -2697,6 +2697,9 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .serve-btn { background: var(--pist) !important; }
 .result-stars span.on { color: #ffcf3f; -webkit-text-stroke: 2px var(--outline); }
 .big-number { color: var(--ink); }
-.cozy-counter-hero { object-fit: cover; object-position: 50% 70%; }
+.cozy-hero { position: relative; aspect-ratio: 1024 / 434; overflow: hidden; background: #f9cfd0; }
+.cozy-hero-inner { position: relative; width: 100%; aspect-ratio: 780 / 1398; margin-top: -88%; }
+.cozy-hero-bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cozy-hero-machine { position: absolute; left: 50%; bottom: 29.5%; transform: translateX(-50%); height: auto; }
 .regular summary .guest-head { vertical-align: middle; margin-right: 4px; }
 .story .guest-head { flex: none; }

@@ -76,7 +76,17 @@ export function GuestHead({ name, size = 32 }: { name: string; size?: number }) 
 export const COZY_COUNTER = true;
 
 export function CafeArt({ levels, decor, onSlot, active }: { levels?: Partial<Record<CafeSlot, number>>; decor?: Partial<Record<CafeDecorSlot, string>>; onSlot?: (s: CafeDecorSlot) => void; active?: CafeDecorSlot }) {
-  if (COZY_COUNTER) return <img class="scene scene-art cozy-counter-hero" src={art('scene-counter')} alt="" draggable={false} />;
+  if (COZY_COUNTER) {
+    const m = Math.min(3, Math.max(1, levels?.machine ?? 1));
+    return (
+      <div class="scene cozy-hero">
+        <div class="cozy-hero-inner">
+          <img class="cozy-hero-bg" src={art('scene-counter')} alt="" draggable={false} />
+          {levels && <img class="cozy-hero-machine" key={m} src={art(`machine-${m}`)} style={{ width: `${[17, 27, 30][m - 1]}%` }} alt="" draggable={false} />}
+        </div>
+      </div>
+    );
+  }
   if (!levels) return <img class="scene scene-art" src={art('scene-cafe')} alt="" draggable={false} />;
   const lv = (k: CafeSlot) => Math.min(3, Math.max(1, levels[k] ?? 1));
   const items = Object.values(decor ?? {})
