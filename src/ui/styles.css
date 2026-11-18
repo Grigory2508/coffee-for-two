@@ -2703,3 +2703,5 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .cozy-hero-machine { position: absolute; left: 50%; bottom: 29.5%; transform: translateX(-50%); height: auto; }
 .regular summary .guest-head { vertical-align: middle; margin-right: 4px; }
 .story .guest-head { flex: none; }
+.room-dot { border: 2px solid var(--outline); font-weight: 800; }
+.room-dot.on { background: var(--butter); color: var(--ink); border-color: var(--outline); }
