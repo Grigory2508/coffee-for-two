@@ -123,6 +123,7 @@ await tab(b, 'Команда');
 await shot(b, '16-team-manager-full', true);
 await tab(b, 'Кофейня');
 await shot(b, '16c-cafe-manager', true);
+await b.getByRole('button', { name: /Дела/ }).first().click();
 await b.getByRole('button', { name: /Предложить новую вывеску/ }).click();
 await b.locator('.brand-editor input').first().fill('Тёплый угол');
 await b.locator('.logo-opt').nth(2).click();

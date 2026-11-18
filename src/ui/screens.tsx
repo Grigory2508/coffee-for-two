@@ -43,7 +43,7 @@ import { expectedCup } from '../core/assembly';
 import { LogoView } from './logo';
 import { BrandCard, ShopSheet } from './social';
 import { HallTab } from './hall';
-import { CafeArt, Coin, Img, StockIcon } from './icons';
+import { CafeArt, Coin, GuestHead, Img, StockIcon } from './icons';
 import { describeLog, playerName, roleName, roomTitle, timeAgo, useGame } from './game';
 
 // ---------- общие куски ----------
@@ -463,7 +463,7 @@ export function CafeInfoTab() {
           return (
             <details class="regular">
               <summary>
-                {r.avatar} <b>{L(r.name)}</b> <span class="muted small">{prog?.visits ?? 0}/{r.beats.length}</span>
+                <GuestHead name={`guest-${id}`} size={28} /> <b>{L(r.name)}</b> <span class="muted small">{prog?.visits ?? 0}/{r.beats.length}</span>
               </summary>
               {r.beats.map((b, i) => {
                 const seenBy = prog?.seenBy[i];
@@ -557,7 +557,7 @@ export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { su
           <div class="card-title">💬 {t('storiesTitle')}</div>
           {summary.beats.map((b) => (
             <div class="story">
-              <span class="avatar">{REGULARS[b.regular].avatar}</span>
+              <GuestHead name={`guest-${b.regular}`} size={44} />
               <div>
                 <b>{L(REGULARS[b.regular].name)}</b>
                 <p>{L(REGULARS[b.regular].beats[b.beat])}</p>
