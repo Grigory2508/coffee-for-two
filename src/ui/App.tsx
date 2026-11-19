@@ -13,7 +13,7 @@ import { CafeArt } from './icons';
 import { describeLog, GameCtx, timeAgo, useGame, type Game } from './game';
 import { CafeInfoTab, CounterTab, Header, OfficeTab, RoomTab, ShiftResult, TeamTab, teamBadge } from './screens';
 import { RatingsTab } from './social';
-import { BrandEditor } from './logo';
+import { BrandEditor, LogoView } from './logo';
 import { DEFAULT_LOGO, cleanCafeName, type Logo } from '../core/content';
 import { digestFor, getPlayer, vitalsNow } from '../core/engine';
 import { lowStock } from './stock';
@@ -426,8 +426,9 @@ export function App() {
 
 function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role, logo: Logo) => void; toastText: string | null }) {
   const [name, setName] = useState(t('cafeNameDefault'));
-  const [logo, setLogo] = useState<Logo>(DEFAULT_LOGO);
+  const [logo, setLogo] = useState<Logo>(randomLogo);
   const [role, setRole] = useState<Role>('barista');
+  const [brand, setBrand] = useState(false);
   const valid = !!cleanCafeName(name);
   return (
     <div class="app onboarding">
@@ -435,16 +436,31 @@ function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role,
       <div class="onb-body">
         <h1>{t('welcomeTitle')}</h1>
         <p class="muted">{t('welcomeText')}</p>
-        <label class="small">{t('brandCreateLabel')}</label>
-        <BrandEditor
-          name={name}
-          logo={logo}
-          onChange={(n, l) => {
-            setName(n);
-            setLogo(l);
-          }}
-        />
+        <label class="small">{t('cafeNameLabel')}</label>
+        {brand ? (
+          <BrandEditor
+            name={name}
+            logo={logo}
+            onChange={(n, l) => {
+              setName(n);
+              setLogo(l);
+            }}
+          />
+        ) : (
+          <div class="onb-name">
+            <button class="onb-logo" onClick={() => setLogo(randomLogo())} aria-label={t('logoShuffle')} title={t('logoShuffle')}>
+              <LogoView logo={logo} size={56} />
+              <i>🎲</i>
+            </button>
+            <input class="input grow" value={name} maxLength={24} onInput={(e) => setName((e.target as HTMLInputElement).value)} />
+          </div>
+        )}
         {!valid && name.trim() && <div class="small danger-text">{t('err_bad_name')}</div>}
+        {!brand && (
+          <button class="btn ghost small" onClick={() => setBrand(true)}>
+            🎨 {t('brandCustomize')}
+          </button>
+        )}
         <label class="small">{t('roleChoose')}</label>
         <div class="role-cards">
           {(['barista', 'manager'] as Role[]).map((r) => (
@@ -477,6 +493,7 @@ function Invite({ peek, onApply, onOwn, toastText }: { peek: CafePeek | null; on
       <CafeArt />
       <div class="onb-body">
         <h1>💌 {t('inviteTitle')}</h1>
+        {peek && <CafeSign peek={peek} />}
         {ok && <p>{t('inviteText', { name: peek.owner, cafe: peek.name })}</p>}
         {ok && peek.staff.length > 0 && (
           <div class="team-mini">
@@ -539,9 +556,20 @@ function Pending({ peek, onCancel, onOwn, toastText }: { peek: CafePeek | null; 
       <CafeArt />
       <div class="onb-body">
         <h1>⏳ {t('pendingTitle')}</h1>
+        {peek && <CafeSign peek={peek} />}
         {app && peek ? (
           <>
             <p>{t('pendingText', { cafe: peek.name, role: L(ROLES[app.role].name), n: app.approvals, m: app.needed })}</p>
+            {app.waitingFor?.length > 0 && (
+              <div class="pending-who">
+                <span class="pending-dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                {t('pendingWho', { names: app.waitingFor.join(', ') })}
+              </div>
+            )}
             <div class="progress">
               <div class="progress-fill" style={{ width: `${Math.round((100 * app.approvals) / Math.max(1, app.needed))}%` }} />
             </div>
@@ -690,4 +718,25 @@ function DebugPanel({ onReset }: { onReset: () => void }) {
       </div>
     </div>
   );
+}
+
+/** Вывеска кофейни на экранах приглашения и ожидания. */
+function CafeSign({ peek }: { peek: CafePeek }) {
+  return (
+    <div class="cafe-sign card">
+      <LogoView logo={peek.logo ?? DEFAULT_LOGO} size={56} />
+      <div>
+        <b>{peek.name}</b>
+        <div class="muted small">{t('signOwner', { name: peek.owner })}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Случайная, но опрятная вывеска для новой кофейни: значок из базовых и контрастная пара цветов. */
+function randomLogo(): Logo {
+  const pairs: [number, number][] = [[0, 6], [1, 6], [3, 6], [4, 13], [7, 13], [8, 6], [11, 13], [12, 13], [5, 13], [2, 5]];
+  const r = (n: number) => Math.floor(Math.random() * n);
+  const [bg, fg] = pairs[r(pairs.length)];
+  return { ...DEFAULT_LOGO, shape: r(3), bg, fg, icon: r(8) };
 }

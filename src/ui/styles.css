@@ -2529,8 +2529,6 @@ button.hud-chip {
 .step-title { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 14px; }
 .step-title .link { border: 0; background: none; cursor: pointer; padding: 0 2px; font-size: 15px; }
 .recipe-peek { background: #fff8ec; border-radius: 10px; padding: 4px 8px; color: var(--coffee-2); }
-.steps-col .counter-actions { display: flex; gap: 6px; }
-.steps-col .counter-actions .serve-btn { flex: 1; }
 
 .bottom-panel { display: flex; flex-direction: column; gap: 6px; touch-action: pan-y; }
 .panel-tabs { display: flex; gap: 6px; }
@@ -2577,9 +2575,6 @@ button.hud-chip {
 .room-scene .room-empty { pointer-events: auto; border: 2px dashed #a9825f; border-radius: 8px; background: #ffffff55; cursor: pointer; padding: 0; }
 .room-scene .room-cat { pointer-events: none; }
 img.decor-icon { width: 100%; height: 56px; object-fit: contain; }
-.steps-col .counter-actions { flex-direction: row; align-items: stretch; padding-top: 2px; }
-.steps-col .counter-actions .btn.small { flex: none; padding: 8px 10px; }
-.steps-col .counter-actions .serve-btn { min-width: 0; }
 .shift .counter-bar { margin-top: 0; }
 .room-scene .wall-layer { width: 100%; height: 100%; }
 .room-scene .room-floor { left: 0; width: 100%; bottom: 0; top: auto; height: auto; }
@@ -2629,8 +2624,6 @@ img.decor-icon { width: 100%; height: 56px; object-fit: contain; }
 /* пропуск шага — заметная кнопка, а не призрак на фоне */
 .skip-btn { background: #fff; color: var(--coffee); border: 2px solid var(--coffee); font-weight: 800; }
 .skip-btn:disabled { border-color: var(--line); color: var(--muted, #a89a8c); background: #f6efe6; }
-.steps-col .counter-actions .skip-btn { flex: 1 1 0; min-width: 0; padding: 6px 6px; font-size: 12px; line-height: 1.1; white-space: normal; }
-.steps-col .counter-actions .serve-btn { flex: 1.2 1 0; }
 
 /* Новый стиль смены: карточки у стойки — компактные вкладки (детали заказа — в реплике гостя) */
 .counter-row .order-card { flex-direction: row; justify-content: flex-start; min-height: 54px; padding: 5px 6px; gap: 6px; text-align: left; }
@@ -2778,9 +2771,9 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 
 /* ---------- этап 1 аудита (19.11) ---------- */
 /* прилавок: 🗑 и ⏭ — иконки 44px, «Подать» забирает остальное и не обрезается */
-.steps-col .counter-actions { display: flex !important; flex-direction: row !important; gap: 6px !important; align-items: stretch; }
-.steps-col .counter-actions .btn.small { flex: none !important; width: 44px; min-width: 44px; height: 48px; padding: 0 !important; font-size: 18px !important; display: grid; place-items: center; }
-.steps-col .counter-actions .serve-btn { flex: 1 1 auto !important; min-width: 96px !important; white-space: nowrap; min-height: 48px; padding: 0 10px; }
+.steps-col .counter-actions { display: flex; flex-direction: row; gap: 6px; align-items: stretch; padding-top: 2px; }
+.steps-col .counter-actions .btn.small { flex: none; width: 44px; min-width: 44px; height: 48px; padding: 0; font-size: 18px; display: grid; place-items: center; }
+.steps-col .counter-actions .serve-btn { flex: 1 1 auto; min-width: 96px; white-space: nowrap; min-height: 48px; padding: 0 10px; }
 /* всплывашки — по центру прилавка, ошибка переносится и держится дольше */
 .counter-bar .popup { left: 50% !important; top: -6px; max-width: 92%; white-space: normal; text-align: center; font-size: 15px; line-height: 1.2; background: var(--paper); border: 3px solid var(--outline); border-radius: 14px; padding: 4px 10px; box-shadow: 0 3px 0 var(--outline); z-index: 5; }
 .counter-bar .popup.bad { animation: popBad 3.2s ease-out forwards; color: #b4473e; }
@@ -2901,3 +2894,30 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 /* зал: слоты — одной лентой со скроллом, основной выбор — тапом по сцене */
 .hall-slots { flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); padding-bottom: 2px; }
 .hall-slots .chip { flex: none; }
+
+/* ---------- онбординг и приглашение ---------- */
+.onb-name { display: flex; align-items: center; gap: 10px; }
+.onb-logo { position: relative; flex: none; padding: 0; border: 0; background: none; cursor: pointer; }
+.onb-logo i { position: absolute; right: -4px; bottom: -4px; font-style: normal; font-size: 16px; background: var(--paper); border: 2px solid var(--outline); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; }
+.cafe-sign { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+.cafe-sign b { font-size: 18px; }
+.pending-who { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.pending-dots { display: inline-flex; gap: 4px; }
+.pending-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--coffee); animation: pdot 1.2s ease-in-out infinite; }
+.pending-dots i:nth-child(2) { animation-delay: 0.2s; }
+.pending-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pdot { 50% { transform: translateY(-5px); opacity: 0.5; } }
+.role-card.on { background: var(--butter) !important; border-color: var(--outline) !important; box-shadow: 0 3px 0 var(--outline); }
+.wave-bar { height: 16px; }
+.wave-past { position: absolute; left: 0; top: 0; bottom: 0; background: #5b3b2b30; pointer-events: none; }
+.wave-seg.peak { background: repeating-linear-gradient(135deg, #f4b48a 0 6px, #ec9d70 6px 12px); }
+.shift-clock { display: flex; align-items: baseline; justify-content: center; gap: 1px; }
+.shift-clock small { font-size: 9px; font-weight: 800; }
+.order-card.empty { flex-direction: row !important; justify-content: space-between !important; align-items: center; gap: 8px; padding: 6px 10px !important; }
+.wipe-btn { min-height: 40px; }
+.wipe-btn:active { transform: rotate(-4deg) scale(0.96); }
+.wipe-btn.shiny { background: #e3efd2 !important; animation: shine 1s ease; }
+@keyframes shine { 30% { box-shadow: 0 0 0 6px #fff6c8; } }
+.regular-teaser { display: flex; align-items: center; gap: 10px; }
+.regular-more { display: inline-flex; gap: 2px; }
+.card.regular-teaser { display: flex !important; flex-direction: row !important; align-items: center; text-align: left; }

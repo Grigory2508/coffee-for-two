@@ -75,6 +75,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const [stock, setStock] = useState<Record<StockId, number>>({ ...state.stock });
   const [popups, setPopups] = useState<Popup[]>([]);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [wipes, setWipes] = useState(0);
   const [leaving, setLeaving] = useState<{ i: number; ok: boolean; key: number } | null>(null);
   const [streak, setStreak] = useState(0);
   const [coins, setCoins] = useState(0);
@@ -284,6 +285,11 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const timeLeft = Math.max(0, duration - elapsed);
   const servedCount = [...results.values()].filter((r) => r.outcome === 'served').length;
   const sel = selected !== null ? plan.guests[selected] : null;
+  const upcoming = plan.guests.filter((g, i) => g.arriveMs > elapsed && !results.has(i)).map((g) => g.arriveMs - elapsed);
+  const nextIn = upcoming.length ? Math.min(...upcoming) : null;
+  useEffect(() => {
+    if (counter.length) setWipes(0);
+  }, [counter.length > 0]);
   const tourOn = tour >= 0 && tour < TOUR.length && !!sel;
   useEffect(() => pause(tourOn), [tourOn]);
   const canServe = !!cup.base && !timer && selected !== null;
@@ -466,14 +472,16 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         </div>
       )}
       <div class="shift-top">
-        <div class={`shift-clock ${timeLeft < 15000 ? 'low' : ''}`}>{Math.ceil(timeLeft / 1000)}</div>
+        <div class={`shift-clock ${timeLeft < 15000 ? 'low' : ''}`} aria-label={t('secLeft', { n: Math.ceil(timeLeft / 1000) })}>
+          {Math.ceil(timeLeft / 1000)}
+          <small>{t('secShort')}</small>
+        </div>
         {/* Прогресс-бар = расписание: пики тёплым цветом, затишья светлым, бегунок — сейчас */}
         <div class="wave-bar grow">
           {segs.map((g) => (
-            <div class={`wave-seg ${g.density > 1 ? 'peak' : 'calm'}`} style={{ flex: g.share }}>
-              <span>{SEG_ICON[g.kind]}</span>
-            </div>
+            <div class={`wave-seg ${g.density > 1 ? 'peak' : 'calm'}`} style={{ flex: g.share }} title={SEG_ICON[g.kind]} />
           ))}
+          <div class="wave-past" style={{ width: `${Math.min(100, (elapsed / duration) * 100)}%` }} />
           <div class="wave-runner" style={{ left: `${Math.min(100, (elapsed / duration) * 100)}%` }} />
         </div>
         <span class="shift-chip">
@@ -518,7 +526,20 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
             </button>
           );
         })}
-        {!counter.length && <div class="order-card empty muted small">{queue.length || plan.guests.some((g, i) => g.arriveMs > elapsed && !results.has(i)) ? t('nextGuest') : '…'}</div>}
+        {!counter.length && (
+          <div class="order-card empty small">
+            <span class="muted">{nextIn !== null ? t('nextGuestIn', { n: Math.max(1, Math.ceil(nextIn / 1000)) }) : queue.length ? t('nextGuest') : '…'}</span>
+            <button
+              class={`btn small wipe-btn ${wipes >= 3 ? 'shiny' : ''}`}
+              onClick={() => {
+                tg.haptic('tap');
+                setWipes(wipes + 1);
+              }}
+            >
+              {wipes >= 3 ? `✨ ${t('wipeDone')}` : `🧽 ${t('wipe')}`}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Стойка: фон, выбранный гость за прилавком, передняя часть прилавка поверх, реплика с заказом */}

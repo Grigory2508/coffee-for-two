@@ -428,6 +428,7 @@ export function CounterTab({ onStartShift }: { onStartShift: () => void }) {
           {catHere && <div class="small center">🐈 {t('catInCafe', { name: state.cat!.name })}</div>}
         </div>
       </div>
+      <RegularsTeaser />
       <MenuToday />
     </div>
   );
@@ -476,16 +477,7 @@ export function CafeInfoTab() {
             <span class="muted small">{t('statEarned')}</span>
           </div>
         </div>
-        <div class="stock-mini">
-          {STOCK_ORDER.filter((k) => (state.stock[k] ?? 0) > 0 || shiftsLeft(state, k) !== Infinity).map((k) => (
-            <span class={lowStock(state).includes(k) ? 'warn' : ''}>
-              <StockIcon k={k} size={20} /> {state.stock[k]}
-            </span>
-          ))}
-        </div>
       </div>
-
-      <MenuToday compact />
 
       <div class="card">
         <div class="card-title">⭐ {t('storiesAll')}</div>
@@ -1374,6 +1366,32 @@ function OnceTip({ id, text }: { id: string; text: string }) {
       >
         {t('tipOk')}
       </button>
+    </div>
+  );
+}
+
+/** Анонс постоянных гостей: у кого история ещё не дорассказана — может заглянуть на смену. */
+function RegularsTeaser() {
+  const { state } = useGame();
+  const open = REGULAR_ORDER.filter((id) => (state.regulars[id]?.visits ?? 0) < REGULARS[id].beats.length);
+  if (!open.length) return null;
+  const next = open.reduce((a, b) => ((state.regulars[b]?.visits ?? 0) > (state.regulars[a]?.visits ?? 0) ? b : a), open[0]);
+  const vis = state.regulars[next]?.visits ?? 0;
+  return (
+    <div class="card regular-teaser">
+      <GuestHead name={`guest-${next}`} size={44} />
+      <div class="grow">
+        <b>★ {L(REGULARS[next].name)}</b>
+        <div class="muted small">{vis ? t('regularNext', { n: vis + 1, m: REGULARS[next].beats.length }) : t('regularNew')}</div>
+      </div>
+      <span class="regular-more muted small">
+        {open
+          .filter((id) => id !== next)
+          .slice(0, 3)
+          .map((id) => (
+            <GuestHead name={`guest-${id}`} size={24} />
+          ))}
+      </span>
     </div>
   );
 }
