@@ -2893,3 +2893,11 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .hud-chip { padding: 0 7px; }
 .hud-chip b { font-size: 13px; }
 @media (max-width: 370px) { .hud-chip .inline { width: 15px; height: 15px; } .hud-energy { padding: 1px 4px; font-size: 11px; } .hud-stats { gap: 4px; } }
+
+/* ---------- этап 5 ---------- */
+.aud-tag { padding: 4px 9px; border-radius: 12px; font-size: 12px; font-weight: 800; border: 2px solid var(--outline); }
+.aud-tag.on { background: #e3efd2; }
+.aud-tag.off { background: transparent; border-style: dashed; border-color: #c9a88f; color: #a88d78; }
+/* зал: слоты — одной лентой со скроллом, основной выбор — тапом по сцене */
+.hall-slots { flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); padding-bottom: 2px; }
+.hall-slots .chip { flex: none; }

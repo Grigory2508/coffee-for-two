@@ -279,7 +279,8 @@ export function HallTab() {
       </div>
       {canEdit && (
         <div class="card">
-          <div class="chips">
+          <div class="muted small">{t('hallTapHint')}</div>
+          <div class="chips hall-slots">
             {HALL_ORDER.map((sl) => (
               <button class={`chip ${slot === sl ? 'on' : ''}`} onClick={() => setSlot(sl)}>
                 {L(HALL_SLOTS[sl])}

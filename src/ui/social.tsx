@@ -3,7 +3,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { CONFIG, GEMS, GEM_PACKS, cleanCafeName, type Logo } from '../core/content';
 import { getPlayer, humans, weekId } from '../core/engine';
 import type { Ratings, RatingRow } from '../net/backend';
-import { L, t } from '../i18n';
+import { fmtNum, L, t } from '../i18n';
 import { BrandEditor, LogoView } from './logo';
 import { playerName, useGame } from './game';
 
@@ -209,7 +209,6 @@ export function RatingsTab() {
       ) : (
         <BoardList rows={data[board]} meCode={state.code} />
       )}
-      <div class="muted tiny center">{t('topAlliancesSoon')}</div>
     </div>
   );
 
@@ -255,13 +254,16 @@ function BoardList({ rows, meCode }: { rows: RatingRow[]; meCode: string }) {
                 <span class="grow">
                   {r.name} {you && <span class="tag">{t('you')}</span>}
                 </span>
-                <b>{r.points}</b>
+                <b>
+                  {fmtNum(r.points)} <span class="muted tiny">{t('ptsWord')}</span>
+                </b>
               </li>
             </>
           );
         })}
         {!rows.length && <li class="muted">—</li>}
       </ol>
+      {youAt > 0 && <div class="muted small center">{t('toNextPlace', { n: rows[youAt - 1].points - rows[youAt].points + 1 })}</div>}
     </div>
   );
 }

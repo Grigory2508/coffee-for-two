@@ -905,9 +905,8 @@ function GrowthSeg() {
                   </div>
                   <div class="buy">
                     <button class="btn small" disabled={state.money < next.cost} onClick={() => send({ type: 'upgradeSlot', slot })}>
-                      {CONFIG.managerTaskEnergy}⚡ · {next.cost} 🪙
+                      {t('upgradeBtn', { e: CONFIG.managerTaskEnergy, c: next.cost })}
                     </button>
-                    {state.money < next.cost && <div class="small muted">{t('lacking', { n: next.cost - state.money })}</div>}
                   </div>
                 </div>
               ) : (
@@ -956,11 +955,17 @@ function AudienceChips() {
   const a = audiences(state, now);
   const keys = ['black', 'milky', 'sweet', 'plant', 'desserts', 'season'] as const;
   return (
-    <div class="chips aud-chips">
-      {keys.map((k) => (
-        <span class={`chip small ${a[k] ? 'on' : 'off'}`}>{t(`aud_${k}`)}</span>
-      ))}
-    </div>
+    <>
+      <div class="muted small">{t('audHint')}</div>
+      <div class="chips aud-chips">
+        {keys.map((k) => (
+          <span class={`tag aud-tag ${a[k] ? 'on' : 'off'}`}>
+            {a[k] ? '✓ ' : ''}
+            {t(`aud_${k}`)}
+          </span>
+        ))}
+      </div>
+    </>
   );
 }
 
