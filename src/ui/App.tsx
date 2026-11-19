@@ -18,6 +18,7 @@ import { DEFAULT_LOGO, cleanCafeName, type Logo } from '../core/content';
 import { digestFor, getPlayer, vitalsNow } from '../core/engine';
 import { lowStock } from './stock';
 import { Shift } from './Shift';
+import { celebrationFor, CelebrateView, type Celebration } from './celebrate';
 
 type Tab = 'work' | 'cafe' | 'home' | 'top' | 'team';
 type Phase =
@@ -51,6 +52,8 @@ export function App() {
   const [toastText, setToastText] = useState<string | null>(null);
   const [askWrite, setAskWrite] = useState(false);
   const toastTimer = useRef<number>(0);
+  const [celeb, setCeleb] = useState<Celebration | null>(null);
+  const celebTimer = useRef<number>(0);
 
   const toast = useCallback((text: string) => {
     setToastText(text);
@@ -161,6 +164,13 @@ export function App() {
         const r = await backend.send(cmd);
         setState(r.state);
         setNow(clockNow());
+        const c = celebrationFor(cmd);
+        if (c) {
+          tg.haptic('success');
+          setCeleb(c);
+          window.clearTimeout(celebTimer.current);
+          celebTimer.current = window.setTimeout(() => setCeleb(null), 2200);
+        }
         return r;
       } catch (e) {
         if (opts?.quiet) return null;
@@ -406,6 +416,7 @@ export function App() {
         )}
         {askWrite && <WriteAccessModal onAnswer={onWriteAnswer} />}
         {toastText && <div class="toast">{toastText}</div>}
+        {celeb && <CelebrateView c={celeb} onClose={() => setCeleb(null)} />}
       </div>
     </GameCtx.Provider>
   );

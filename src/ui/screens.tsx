@@ -670,6 +670,7 @@ function StockSeg() {
 
   return (
     <>
+      <OnceTip id="office" text={t('tipOffice')} />
       <div class="card">
         <div class="row">
           <div class="card-title grow">🚚 {t('supplyTitle')}</div>
@@ -1263,7 +1264,7 @@ export function TeamTab() {
 
 /** Открытки и подарки коллегам: стоят личных денег и бодрости, радуют получателя. */
 function GiftCard() {
-  const { state, me, send, toast } = useGame();
+  const { state, me, send } = useGame();
   const others = humans(state).filter((h) => h.id !== me.id);
   const [to, setTo] = useState(others[0]?.id ?? '');
   const [text, setText] = useState('');
@@ -1272,10 +1273,7 @@ function GiftCard() {
   const target = others.some((o) => o.id === to) ? to : others[0].id;
   async function go(kind: 'postcard' | 'gift') {
     const r = await send({ type: 'sendGift', to: target, kind, text });
-    if (r) {
-      setText('');
-      toast(t('giftSent', { name: others.find((o) => o.id === target)?.name ?? '' }));
-    }
+    if (r) setText('');
   }
   return (
     <div class="card">
@@ -1306,3 +1304,34 @@ export function teamBadge(s: CafeState, meId: string): number {
   return apps + (s.swap && s.swap.with === meId ? 1 : 0);
 }
 
+
+/** Разовая подсказка: показывается, пока игрок не нажмёт «Ясно». */
+function OnceTip({ id, text }: { id: string; text: string }) {
+  const key = `cft:tip:${id}`;
+  const [show, setShow] = useState(() => {
+    try {
+      return !localStorage.getItem(key);
+    } catch {
+      return false;
+    }
+  });
+  if (!show) return null;
+  return (
+    <div class="card once-tip">
+      <div class="tour-text">💡 {text}</div>
+      <button
+        class="btn small primary"
+        onClick={() => {
+          setShow(false);
+          try {
+            localStorage.setItem(key, '1');
+          } catch {
+            /* ничего */
+          }
+        }}
+      >
+        {t('tipOk')}
+      </button>
+    </div>
+  );
+}

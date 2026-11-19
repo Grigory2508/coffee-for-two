@@ -75,6 +75,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const [stock, setStock] = useState<Record<StockId, number>>({ ...state.stock });
   const [popups, setPopups] = useState<Popup[]>([]);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [leaving, setLeaving] = useState<{ i: number; ok: boolean; key: number } | null>(null);
   const [streak, setStreak] = useState(0);
   const [coins, setCoins] = useState(0);
   const finished = useRef(false);
@@ -87,10 +88,38 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const menuFlavors = useMemo(() => new Set(state.menu.map((d) => DRINKS[d]?.recipe.flavor).filter(Boolean)), []);
   const baseOpen = (b: string) => b === 'espresso' || b === 'double' || menuBases.has(b as never);
 
+  // Мини-тур первой смены: пока открыта подсказка, часы смены стоят (не дольше TOUR_MAX_MS — сервер даёт минуту запаса)
+  const [tour, setTour] = useState(() => (wantTour() ? 0 : -1));
+  const pausedAt = useRef<number | null>(null);
+  const pausedTotal = useRef(0);
   useEffect(() => {
-    const id = window.setInterval(() => setElapsed(performance.now() - t0.current), 100);
+    const id = window.setInterval(() => {
+      if (pausedAt.current !== null) {
+        if (pausedTotal.current + performance.now() - pausedAt.current > TOUR_MAX_MS) endTour();
+        return;
+      }
+      setElapsed(performance.now() - t0.current);
+    }, 100);
     return () => window.clearInterval(id);
   }, []);
+  function pause(on: boolean) {
+    if (on && pausedAt.current === null) pausedAt.current = performance.now();
+    if (!on && pausedAt.current !== null) {
+      const d = performance.now() - pausedAt.current;
+      t0.current += d;
+      pausedTotal.current += d;
+      pausedAt.current = null;
+    }
+  }
+  function endTour() {
+    pause(false);
+    setTour(-1);
+    try {
+      localStorage.setItem('cft:tour:shift', '1');
+    } catch {
+      /* без хранилища тур просто покажется ещё раз */
+    }
+  }
 
   // Таймер шага закончился — переходим дальше
   useEffect(() => {
@@ -219,6 +248,9 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     setResults(next);
     setCounter(counter.filter((c) => c.i !== i));
     setSelected(null);
+    const key = Math.random();
+    setLeaving({ i, ok, key });
+    window.setTimeout(() => setLeaving((l) => (l?.key === key ? null : l)), 1100);
     setCup({});
     setStep('vessel');
     setTray(null);
@@ -252,6 +284,8 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const timeLeft = Math.max(0, duration - elapsed);
   const servedCount = [...results.values()].filter((r) => r.outcome === 'served').length;
   const sel = selected !== null ? plan.guests[selected] : null;
+  const tourOn = tour >= 0 && tour < TOUR.length && !!sel;
+  useEffect(() => pause(tourOn), [tourOn]);
   const canServe = !!cup.base && !timer && selected !== null;
   const progress = timer ? { step: timer.step, p: 1 - Math.max(0, timer.until - elapsed) / timer.total } : null;
   const steps = STEP_ORDER.filter((s) => s !== 'whip' || cup.dairy?.type === 'cream').filter((s) => s !== 'texture' || cup.dairy?.type !== 'cream');
@@ -413,6 +447,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
 
   return (
     <div class="shift">
+      {tourOn && <TourTip step={tour} onNext={() => (tour + 1 >= TOUR.length ? endTour() : setTour(tour + 1))} onSkip={endTour} />}
       {confirmEnd && (
         <div class="sheet-bg" onClick={() => setConfirmEnd(false)}>
           <div class="sheet" onClick={(e) => e.stopPropagation()}>
@@ -491,7 +526,9 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         <div class="cs-inner">
           <img class="cs-bg" src={art('scene-counter')} alt="" draggable={false} />
         </div>
+        {leaving && leaving.i !== selected && <img class={`cs-guest leaving ${leaving.ok ? 'ok' : 'bad'}`} key={`l${leaving.key}`} src={art(guestArt(leaving.i))} alt="" draggable={false} />}
         {sel && selected !== null && <img class="cs-guest" key={selected} src={art(guestArt(selected))} alt="" draggable={false} />}
+        {leaving && <div class={`cs-react ${leaving.ok ? 'ok' : 'bad'}`} key={`r${leaving.key}`}>{leaving.ok ? '💖' : '😕'}</div>}
         <div class="cs-inner">
           <img class="cs-front" src={art('scene-counter-front')} alt="" draggable={false} />
         </div>
@@ -637,3 +674,52 @@ function RecipeStrip({ want, cup, step, name }: { want: Cup; cup: Cup; step: Ste
   );
 }
 
+
+const TOUR_MAX_MS = 45_000;
+const TOUR: { sel: string; text: string }[] = [
+  { sel: '.cs-bubble', text: 'tour1' },
+  { sel: '.recipe-strip', text: 'tour2' },
+  { sel: '.bottom-panel', text: 'tour3' },
+  { sel: '.counter-actions', text: 'tour4' },
+];
+function wantTour(): boolean {
+  try {
+    if (localStorage.getItem('cft:tour:force')) return true;
+    if (navigator.webdriver) return false; // автотесты и боты — без тура
+    return !localStorage.getItem('cft:tour:shift');
+  } catch {
+    return false;
+  }
+}
+
+/** Подсказка тура: подсвечивает элемент и стоит под ним (или над ним, если внизу нет места). */
+function TourTip({ step, onNext, onSkip }: { step: number; onNext: () => void; onSkip: () => void }) {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    const el = document.querySelector(TOUR[step].sel);
+    el?.classList.add('tour-hl');
+    setRect(el ? el.getBoundingClientRect() : null);
+    return () => el?.classList.remove('tour-hl');
+  }, [step]);
+  const below = !rect || rect.bottom < window.innerHeight * 0.6;
+  const style = rect ? (below ? { top: `${rect.bottom + 10}px` } : { bottom: `${window.innerHeight - rect.top + 10}px` }) : { top: '30%' };
+  return (
+    <>
+      <div class="tour-dim" />
+      <div class={`tour-tip ${below ? 'below' : 'above'}`} style={style}>
+        <div class="tour-text">{t(TOUR[step].text)}</div>
+        <div class="row gap">
+          <button class="btn ghost small" onClick={onSkip}>
+            {t('tourSkip')}
+          </button>
+          <span class="grow muted small">
+            {step + 1}/{TOUR.length}
+          </span>
+          <button class="btn primary small" onClick={onNext}>
+            {step + 1 >= TOUR.length ? t('tourGo') : t('tourNext')}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
