@@ -75,11 +75,11 @@ export function roomTitle(s: CafeState, key: string, meId: string): string {
 
 export function timeAgo(now: number, at: number): string {
   const m = Math.floor((now - at) / 60_000);
-  if (m < 1) return '•';
-  if (m < 60) return `${m}′`;
+  if (m < 1) return t('agoNow');
+  if (m < 60) return t('agoMin', { n: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
+  if (h < 24) return t('agoHour', { n: h });
+  return t('agoDay', { n: Math.floor(h / 24) });
 }
 
 export function roleName(r: Role): string {

@@ -2775,3 +2775,35 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .h3-back .layer-base { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hall3d-scene .hall-sign { max-width: 40%; }
 .hero .hall3d-scene { max-height: none; aspect-ratio: 4 / 3; }
+
+/* ---------- этап 1 аудита (19.11) ---------- */
+/* прилавок: 🗑 и ⏭ — иконки 44px, «Подать» забирает остальное и не обрезается */
+.steps-col .counter-actions { display: flex !important; flex-direction: row !important; gap: 6px !important; align-items: stretch; }
+.steps-col .counter-actions .btn.small { flex: none !important; width: 44px; min-width: 44px; height: 48px; padding: 0 !important; font-size: 18px !important; display: grid; place-items: center; }
+.steps-col .counter-actions .serve-btn { flex: 1 1 auto !important; min-width: 96px !important; white-space: nowrap; min-height: 48px; padding: 0 10px; }
+/* всплывашки — по центру прилавка, ошибка переносится и держится дольше */
+.counter-bar .popup { left: 50% !important; top: -6px; max-width: 92%; white-space: normal; text-align: center; font-size: 15px; line-height: 1.2; background: var(--paper); border: 3px solid var(--outline); border-radius: 14px; padding: 4px 10px; box-shadow: 0 3px 0 var(--outline); z-index: 5; }
+.counter-bar .popup.bad { animation: popBad 3.2s ease-out forwards; color: #b4473e; }
+.counter-bar .popup.good { color: #2f7a52; }
+@keyframes popBad { 0% { transform: translate(-50%, 6px) scale(0.9); opacity: 0; } 8% { transform: translate(-50%, 0) scale(1); opacity: 1; } 85% { opacity: 1; } 100% { transform: translate(-50%, -10px); opacity: 0; } }
+/* выход из смены — нейтральный, 44px */
+.shift-close { width: 44px !important; height: 44px !important; background: var(--paper) !important; color: var(--coffee) !important; font-size: 18px; flex: none; }
+/* тач-зоны 44px */
+.chip { min-height: 44px; }
+.seg { min-height: 44px; }
+.step-dot { width: 27px !important; height: 27px !important; min-width: 27px; font-size: 12px; }
+.step-dots { gap: 2px !important; flex-wrap: nowrap !important; }
+/* корзина склада */
+.basket-bar { align-items: center; gap: 8px; }
+.basket-bar .basket-sum { min-width: 0; line-height: 1.15; }
+.basket-bar .basket-sum b { font-size: 18px; white-space: nowrap; }
+.basket-bar .icon-btn { width: 44px; height: 44px; flex: none; }
+.stock-extra { margin-top: 6px; }
+.stock-extra > summary { cursor: pointer; padding: 10px 0; min-height: 44px; display: flex; align-items: center; }
+/* команда */
+.staff-row .tag { margin-left: 6px; white-space: nowrap; display: inline-block; }
+.staff-row .icon-btn { width: 44px; height: 44px; }
+/* редактор вывески: один скролл, превью прилипает, выбранный значок заметен */
+.logo-groups { max-height: none !important; overflow: visible !important; }
+.brand-preview { position: sticky; top: 0; z-index: 3; background: var(--paper); padding: 6px 0; }
+.logo-opt.on { border-color: var(--outline) !important; background: var(--butter) !important; box-shadow: 0 2px 0 var(--outline); }

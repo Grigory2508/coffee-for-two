@@ -263,7 +263,7 @@ export const ROOM_SLOTS: Record<RoomKind, DecorSlot[]> = {
 };
 
 export const ROOMS: Record<RoomKind, { name: L10n; icon: string }> = {
-  hall: { name: { ru: 'Зал', en: 'Living room' }, icon: '🛋️' },
+  hall: { name: { ru: 'Гостиная', en: 'Living room' }, icon: '🛋️' },
   kitchen: { name: { ru: 'Кухня', en: 'Kitchen' }, icon: '🍳' },
   bedroom: { name: { ru: 'Комната', en: 'Room' }, icon: '🛏️' },
 };

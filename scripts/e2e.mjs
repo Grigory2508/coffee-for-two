@@ -173,7 +173,8 @@ check((await a.getByRole('button', { name: /Перейти в роль/ }).count
 
 // --- A (владелец) убирает C, B выходит сам
 await tab(a, 'Команда');
-await a.locator('.staff-row', { hasText: 'Vika' }).getByRole('button', { name: 'Убрать' }).click();
+await a.locator('.staff-row', { hasText: 'Vika' }).getByRole('button', { name: 'Ещё' }).click();
+await a.locator('.staff-row', { hasText: 'Vika' }).getByRole('button', { name: 'Убрать из команды' }).click();
 await a.waitForTimeout(400);
 check((await a.locator('.staff-row', { hasText: 'Vika' }).count()) === 0, 'C removed');
 await c.bringToFront();

@@ -31,7 +31,7 @@ import {
 import { slotLevel, slotEffects, audiences, shiftDuration, vitrineDesserts, canMake, capacity, catInCafe, counterHolder, freeRoles, getPlayer, guestsPerShift, humans, level, officeHolder, packPrice, rating, roleCount, todayMenu, vitalsNow, roomOrder, roomCost, type ShiftSummary } from '../core/engine';
 import { fillBasket, lowStock, shiftsLeft, stockByUrgency } from './stock';
 import type { CafeState, HomeRoom, Player } from '../core/types';
-import { fmtDuration, L, t } from '../i18n';
+import { fmtDuration, fmtNum, L, t } from '../i18n';
 import { inviteLink } from '../net/backend';
 import { track } from '../platform/analytics';
 import { tg } from '../platform/telegram';
@@ -80,11 +80,11 @@ export function Header({ onRating, onAlert, extra }: { onRating?: () => void; on
           </button>
         )}
         <button class="hud-chip" title={t('budget')} onClick={() => setOpen(!open)}>
-          <Coin /> <b>{state.money}</b>
+          <Coin /> <b>{fmtNum(state.money)}</b>
         </button>
         {p && v && (
           <button class="hud-chip vitals-chip" onClick={() => setOpen(!open)} aria-label={t('vitalsTitle')}>
-            <span title={t('wallet')}>👛<b>{p.wallet}</b></span>
+            <span title={t('wallet')}>👛<b>{fmtNum(p.wallet)}</b></span>
             <span class="meters" aria-hidden="true">
               <i title={t('energy')}><u class="m-energy" style={{ width: `${v.energy}%` }} /></i>
               <i title={t('happy')}><u class="m-happy" style={{ width: `${v.happy}%` }} /></i>
@@ -181,6 +181,7 @@ function TeamCard({ manage }: { manage?: boolean }) {
   const hs = humans(state);
   const isOwner = state.ownerId === me.id;
   const canInvite = freeRoles(state).length > 0;
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   async function remove(id: string, name: string) {
     if (!(await tg.confirm(t('removeConfirm', { name })))) return;
@@ -207,11 +208,16 @@ function TeamCard({ manage }: { manage?: boolean }) {
                 {p.isNpc ? ` · ${t('npcHint')}` : status ? ` · ${status}` : p.id !== me.id ? ` · ${now - p.lastSeenAt < 60_000 ? t('justNow') : timeAgo(now, p.lastSeenAt)}` : ''}
               </div>
             </div>
-            {manage && isOwner && !p.isNpc && p.id !== me.id && (
-              <button class="btn small ghost danger-text" onClick={() => remove(p.id, p.name)}>
-                {t('removeStaff')}
-              </button>
-            )}
+            {manage && isOwner && !p.isNpc && p.id !== me.id &&
+              (menuFor === p.id ? (
+                <button class="btn small ghost danger-text" onClick={() => remove(p.id, p.name)}>
+                  {t('removeStaff')}
+                </button>
+              ) : (
+                <button class="btn ghost small icon-btn" onClick={() => setMenuFor(p.id)} aria-label={t('more')}>
+                  ⋯
+                </button>
+              ))}
           </div>
         );
       })}
@@ -440,7 +446,7 @@ export function CafeInfoTab() {
             <span class="muted small">{t('statServed')}</span>
           </div>
           <div>
-            <b>{state.stats.earned}</b>
+            <b>{fmtNum(state.stats.earned)}</b>
             <span class="muted small">{t('statEarned')}</span>
           </div>
         </div>
@@ -525,7 +531,7 @@ export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { su
           </span>
         ))}
       </div>
-      <div class="big-number">+{summary.earned} 🪙</div>
+      <div class="big-number">+{fmtNum(summary.earned)} 🪙</div>
       <div class="muted center">
         {t('tips')}: {summary.tips} 🪙
       </div>
@@ -685,7 +691,11 @@ function StockSeg() {
               {L(grp.name)}
               {desserts && <span class="muted small"> · {t('vitrineKinds', { n: kinds, max: maxKinds })}</span>}
             </summary>
-            {items.map((k) => {
+            {(() => {
+              const isExtra = (k: StockId) => !desserts && shiftsLeft(state, k) === Infinity && !(basket[k] ?? 0);
+              const main = items.filter((k) => !isExtra(k));
+              const extra = items.filter(isExtra);
+              const row = (k: StockId) => {
               const pack = STOCK_PACKS[k];
               const cap = capacity(state, k);
               const n = basket[k] ?? 0;
@@ -698,7 +708,7 @@ function StockSeg() {
               const note = desserts
                 ? fresh && have > 0
                   ? t('freshFor', { t: fmtDuration(fresh - now) })
-                  : `${DESSERTS[k.slice(3) as DessertId].price} 🪙`
+                  : t('sellPrice', { n: DESSERTS[k.slice(3) as DessertId].price })
                 : left === Infinity
                   ? t('notUsedToday')
                   : left < 1
@@ -729,19 +739,32 @@ function StockSeg() {
                   </div>
                 </div>
               );
-            })}
+              };
+              return (
+                <>
+                  {main.map(row)}
+                  {extra.length > 0 && (
+                    <details class="stock-extra">
+                      <summary class="muted small">{t('stockExtra', { n: extra.length })}</summary>
+                      {extra.map(row)}
+                    </details>
+                  )}
+                </>
+              );
+            })()}
           </details>
         );
       })}
       {packs > 0 && (
         <div class="basket-bar">
-          <div class="grow">
-            <b>{t('basketSummary', { n: packs, cost })}</b>
-            {state.money < cost && <div class="small danger-text">{t('lacking', { n: cost - state.money })}</div>}
-          </div>
           <button class="btn ghost small icon-btn" onClick={() => setBasket({})} aria-label={t('basketClear')} title={t('basketClear')}>
             🗑
           </button>
+          <div class="grow basket-sum">
+            <div class="muted small">{t('basketPacks', { n: packs })}</div>
+            <b>{fmtNum(cost)} 🪙</b>
+            {state.money < cost && <div class="small danger-text">{t('lacking', { n: cost - state.money })}</div>}
+          </div>
           <button class="btn primary" disabled={state.money < cost} onClick={go}>
             {t('basketGo', { e: CONFIG.managerTaskEnergy })}
           </button>
@@ -1007,7 +1030,7 @@ function RoomPage({ roomKey }: { roomKey: string }) {
               </button>
             )}
           </div>
-          <div class="muted small">👛 {p.wallet} 🪙</div>
+          <div class="muted small">👛 {fmtNum(p.wallet)}</div>
         </div>
       </div>
     );
@@ -1240,7 +1263,7 @@ export function TeamTab() {
 
 /** Открытки и подарки коллегам: стоят личных денег и бодрости, радуют получателя. */
 function GiftCard() {
-  const { state, me, send } = useGame();
+  const { state, me, send, toast } = useGame();
   const others = humans(state).filter((h) => h.id !== me.id);
   const [to, setTo] = useState(others[0]?.id ?? '');
   const [text, setText] = useState('');
@@ -1249,7 +1272,10 @@ function GiftCard() {
   const target = others.some((o) => o.id === to) ? to : others[0].id;
   async function go(kind: 'postcard' | 'gift') {
     const r = await send({ type: 'sendGift', to: target, kind, text });
-    if (r) setText('');
+    if (r) {
+      setText('');
+      toast(t('giftSent', { name: others.find((o) => o.id === target)?.name ?? '' }));
+    }
   }
   return (
     <div class="card">

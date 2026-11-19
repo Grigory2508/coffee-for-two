@@ -74,6 +74,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   const [panel, setPanel] = useState<'drink' | 'dessert'>('drink');
   const [stock, setStock] = useState<Record<StockId, number>>({ ...state.stock });
   const [popups, setPopups] = useState<Popup[]>([]);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const [streak, setStreak] = useState(0);
   const [coins, setCoins] = useState(0);
   const finished = useRef(false);
@@ -158,7 +159,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   function popup(text: string, good: boolean) {
     const id = Math.random();
     setPopups((p) => [...p, { id, text, good }]);
-    window.setTimeout(() => setPopups((p) => p.filter((x) => x.id !== id)), 1500);
+    window.setTimeout(() => setPopups((p) => p.filter((x) => x.id !== id)), good ? 1500 : 3200);
   }
 
   /** Выбор на текущем шаге: записываем в чашку, запускаем таймер, переходим к следующему возможному шагу. */
@@ -230,14 +231,16 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
     } else {
       tg.haptic('error');
       setStreak(0);
-      const parts = diff.map((s) => L(STEP_NAMES[s]).toLowerCase());
-      if (!dessertOk) parts.push(t('dessertWord'));
+      const wanted = new Map(wantItems(expectedCup(g)).map((x) => [x.id, x.label]));
+      const parts = diff.map((s) => (wanted.has(s) ? `${L(STEP_NAMES[s]).toLowerCase()} — ${t('neededWord')} ${wanted.get(s)}` : `${t('extraWord')} ${L(STEP_NAMES[s]).toLowerCase()}`));
+      if (!dessertOk) parts.push(g.dessert ? `${t('dessertWord')} — ${t('neededWord')} ${L(DESSERTS[g.dessert].name)}` : `${t('extraWord')} ${t('dessertWord')}`);
       popup(t('notLikeThat', { what: parts.join(', ') }), false);
     }
   }
 
   function endEarly() {
     if (finished.current) return;
+    setConfirmEnd(false);
     finished.current = true;
     const next = new Map(results);
     plan.guests.forEach((g, i) => {
@@ -410,6 +413,23 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
 
   return (
     <div class="shift">
+      {confirmEnd && (
+        <div class="sheet-bg" onClick={() => setConfirmEnd(false)}>
+          <div class="sheet" onClick={(e) => e.stopPropagation()}>
+            <div class="sheet-grip" />
+            <h3>{t('endShiftQ')}</h3>
+            <p class="muted">{t('endShiftWarn', { n: plan.guests.length - results.size })}</p>
+            <div class="row gap">
+              <button class="btn grow" onClick={endEarly}>
+                {t('endShift')}
+              </button>
+              <button class="btn primary grow" onClick={() => setConfirmEnd(false)}>
+                {t('stayShift')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div class="shift-top">
         <div class={`shift-clock ${timeLeft < 15000 ? 'low' : ''}`}>{Math.ceil(timeLeft / 1000)}</div>
         {/* Прогресс-бар = расписание: пики тёплым цветом, затишья светлым, бегунок — сейчас */}
@@ -426,7 +446,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         </span>
         <span class="shift-chip">🪙 {coins}</span>
         {streak >= 2 && <span class="shift-chip streak">🔥 ×{streak}</span>}
-        <button class="shift-close" onClick={endEarly} aria-label={t('endShift')}>
+        <button class="shift-close" onClick={() => (results.size === plan.guests.length ? endEarly() : setConfirmEnd(true))} aria-label={t('endShift')}>
           ✕
         </button>
       </div>
@@ -543,8 +563,8 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
             <button class="btn ghost small" disabled={!cup.vessel || !!timer} onClick={pourOut} aria-label={t('pour')}>
               🗑
             </button>
-            <button class="btn small skip-btn" disabled={!step || step === 'vessel' || step === 'base' || !!timer} onClick={skip}>
-              ⏭ {t('skipStep')}
+            <button class="btn small skip-btn" disabled={!step || step === 'vessel' || step === 'base' || !!timer} onClick={skip} aria-label={t('skipStep')} title={t('skipStep')}>
+              ⏭
             </button>
             <button class="btn primary serve-btn" disabled={!canServe} onClick={serve}>
               {t('serve')}
@@ -586,7 +606,8 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
 }
 
 /** Рецепт выбранного гостя: шаги по порядку, сделанные — ✓, текущий подсвечен. */
-function RecipeStrip({ want, cup, step, name }: { want: Cup; cup: Cup; step: StepId | null; name: string }) {
+/** Подписи к шагам рецепта: что именно хочет гость. */
+function wantItems(want: Cup) {
   const items: { id: StepId; label: string }[] = [];
   if (want.vessel) items.push({ id: 'vessel', label: L(VESSELS[want.vessel].name) });
   if (want.ice) items.push({ id: 'ice', label: t('iceWord') });
@@ -597,6 +618,11 @@ function RecipeStrip({ want, cup, step, name }: { want: Cup; cup: Cup; step: Ste
   if (want.whip) items.push({ id: 'whip', label: t('whipDrink') });
   if (want.water) items.push({ id: 'water', label: t('addWater') });
   if (want.topping) items.push({ id: 'topping', label: L(TOPPINGS[want.topping].name) });
+  return items;
+}
+
+function RecipeStrip({ want, cup, step, name }: { want: Cup; cup: Cup; step: StepId | null; name: string }) {
+  const items = wantItems(want);
   const has = (id: StepId) => (cup as Record<string, unknown>)[id] != null && (cup as Record<string, unknown>)[id] !== false;
   return (
     <div class="recipe-strip" aria-label={name}>
