@@ -1154,6 +1154,7 @@ function CatCard() {
   const [catName, setCatName] = useState('');
   const p = getPlayer(state, me.id)!;
   const petReadyIn = p.lastPetAt + CONFIG.catPetCooldownMs - now;
+  const [hearts, setHearts] = useState(false);
   return (
     <div class="card">
       <div class="card-title">🐈 {t('catTitle')}</div>
@@ -1169,7 +1170,27 @@ function CatCard() {
         </div>
       ) : (
         <div class="cat-card">
-          <CatPortrait mood={state.cat.mood} />
+          <button
+            class={`cat-tap ${hearts ? 'petted' : ''}`}
+            disabled={petReadyIn > 0}
+            aria-label={t('pet')}
+            onClick={async () => {
+              const r = await send({ type: 'petCat' });
+              if (r) {
+                setHearts(true);
+                window.setTimeout(() => setHearts(false), 1200);
+              }
+            }}
+          >
+            <CatPortrait mood={state.cat.mood} />
+            {hearts && (
+              <span class="cat-hearts" aria-hidden="true">
+                <i>💗</i>
+                <i>💗</i>
+                <i>💗</i>
+              </span>
+            )}
+          </button>
           <div class="grow">
             <b>{state.cat.name}</b>
             <Progress label={t('hunger')} value={state.cat.hunger / 100} />

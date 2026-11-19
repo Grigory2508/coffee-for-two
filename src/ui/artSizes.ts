@@ -1,5 +1,8 @@
 // Сгенерировано scripts/art/sizes.py: ширина / высота каждого спрайта квартиры.
 export const ART_RATIO: Record<string, number> = {
+  "cat-calm": 1.299,
+  "cat-happy": 0.902,
+  "cat-sad": 0.921,
   "decor-floorplant": 0.59,
   "decor-garland": 3.455,
   "decor-hanging": 0.524,
@@ -82,6 +85,18 @@ export const ART_RATIO: Record<string, number> = {
   "home-window-0": 1.155,
   "home-window-1": 1.114,
   "home-window-2": 1.186,
+  "ic-ads-paper": 1.115,
+  "ic-ads-social": 0.648,
+  "ic-barista": 0.902,
+  "ic-cafe": 1.096,
+  "ic-counter": 0.913,
+  "ic-gem": 1.026,
+  "ic-gift": 0.915,
+  "ic-home": 1.034,
+  "ic-manager": 1.141,
+  "ic-office": 0.739,
+  "ic-team": 1.275,
+  "ic-top": 1.086,
   "room-window": 0.894,
   "room-counter": 1.962
 };

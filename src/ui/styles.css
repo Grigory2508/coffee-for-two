@@ -2924,3 +2924,14 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .ui-icon { display: inline-block; vertical-align: middle; object-fit: contain; }
 .cat-sprite { height: auto; }
 img.cat-portrait { width: 96px; height: auto; }
+/* кот: тап по портрету — погладить, сердечки */
+.cat-tap { position: relative; border: 0; background: none; padding: 0; cursor: pointer; flex: none; }
+.cat-tap:disabled { cursor: default; opacity: 1; }
+.cat-tap.petted img { animation: catWiggle 0.6s ease; }
+@keyframes catWiggle { 25% { transform: rotate(-5deg) scale(1.05); } 75% { transform: rotate(4deg); } }
+.cat-hearts { position: absolute; inset: 0; pointer-events: none; }
+.cat-hearts i { position: absolute; left: 45%; top: 30%; font-style: normal; font-size: 18px; animation: heartUp 1.2s ease-out forwards; }
+.cat-hearts i:nth-child(2) { left: 20%; animation-delay: 0.15s; }
+.cat-hearts i:nth-child(3) { left: 70%; animation-delay: 0.3s; }
+@keyframes heartUp { from { transform: translateY(0) scale(0.5); opacity: 1; } to { transform: translateY(-50px) scale(1.2); opacity: 0; } }
+.room-cat.cat-sprite { width: 17% !important; }
