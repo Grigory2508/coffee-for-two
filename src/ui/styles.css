@@ -2761,3 +2761,17 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .swatch.on { box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--butter) !important; }
 .swatch.on::after { content: '✓'; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 900; -webkit-text-stroke: 2px var(--outline); paint-order: stroke fill; }
 .room-dots { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+
+/* ---------- зал в перспективе (19.11) ---------- */
+.hall3d-scene { container-type: inline-size; background: #e9b97c; }
+.hall3d { position: absolute; inset: 0; perspective: 100cqw; perspective-origin: 50% -12%; transform-style: preserve-3d; pointer-events: none; }
+.h3-floor, .h3-side { position: absolute; transform-style: preserve-3d; }
+.h3-floor { left: -30%; width: 160%; top: 33cqw; height: 112cqw; transform-origin: 50% 0; transform: rotateX(90deg) scale(0.5); }
+.h3-side { top: 0; height: 33cqw; width: 56cqw; }
+.h3-left { left: calc(10% - 56cqw); transform-origin: 100% 50%; transform: rotateY(90deg); }
+.h3-right { left: 90%; transform-origin: 0 50%; transform: rotateY(-90deg); }
+.h3-floor .layer-base, .h3-side .layer-base { position: absolute; inset: 0; width: 100%; height: 100%; }
+.h3-back { position: absolute; left: 10%; width: 80%; top: 0; height: 44%; box-shadow: -1px 0 0 #5b3b2b, 1px 0 0 #5b3b2b; }
+.h3-back .layer-base { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hall3d-scene .hall-sign { max-width: 40%; }
+.hero .hall3d-scene { max-height: none; aspect-ratio: 4 / 3; }

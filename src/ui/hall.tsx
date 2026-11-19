@@ -6,17 +6,29 @@ import { slotEffects } from '../core/engine';
 import { L, t } from '../i18n';
 import { useGame } from './game';
 import { ART_RATIO } from './artSizes';
-import { FLOOR } from './art';
 import { art } from './icons';
 import { LogoView } from './logo';
-import { WallLayer, WallSwatch } from './wall';
+import { Motif, SIZE, WallSwatch } from './wall';
 
-/** Видимая стена зала — 300 см (выше потолок квартиры): свой масштаб. */
-const HCM = FLOOR / 300;
-const HCMW = HCM * 0.75;
-const hAt = (cm: number) => FLOOR - cm * HCM;
+// Зал в перспективе «три четверти», как на превью: задняя стена, две боковые, пол уходит к зрителю.
+// Пол и боковые стены — CSS 3D (точная перспектива для узора), предметы — плоские спрайты,
+// масштаб которых считается по той же формуле, что и перспектива пола.
 
-type HPlace = { x: number; bottom: number | [number, number, number]; h?: [number, number, number]; wcm?: number; hang?: true; twin?: [number, number] };
+/** Сцена 400×300 условных единиц (4:3). Задняя стена: x 40..360, y 0..132. Точка схода — над кадром. */
+const WALL_B = 44; // % высоты — низ задней стены
+const VP_Y = -12; // % высоты — точка схода
+const WALL_W = 320; // ед.
+const WALL_H = 132; // ед. = 300 см
+const U_CM = WALL_H / 300; // ед. на см у задней стены
+const SIDE_D = 224; // глубина пола и боковых стен, ед.
+/** Во сколько раз крупнее предмет, стоящий на полу в точке y (% высоты), чем у задней стены. */
+const depthK = (y: number) => (y - VP_Y) / (WALL_B - VP_Y);
+/** На задней стене: высота в % стены и ширина в % стены для размера в см. */
+const wallH = (cm: number) => (cm / 300) * 100;
+const wallW = (cm: number) => ((cm * U_CM) / WALL_W) * 100;
+
+type WallPlace = { x: number; cm: number | [number, number, number]; h?: [number, number, number]; wcm?: number; twin?: [number, number] };
+type FloorPlace = { x: number; y: number; h: [number, number, number] };
 
 /** Спрайты зала до генерации заменяем похожими из квартиры и старого декора. */
 const FALLBACK: Record<string, string> = {
@@ -32,133 +44,218 @@ const FALLBACK: Record<string, string> = {
 const sprite = (name: string) => (ART_RATIO[name] ? name : FALLBACK[name] ?? name);
 const ratio = (name: string) => ART_RATIO[sprite(name)] ?? 1;
 
-export const HALL_ART: Record<HallSlot, HPlace> = {
-  window1: { x: 33.8, bottom: hAt(85), wcm: 90, hang: true },
-  window2: { x: 75.5, bottom: hAt(85), wcm: 90, hang: true },
-  picture: { x: 56.4, bottom: hAt(125), h: [50, 60, 70], hang: true },
-  sconces: { x: 56.4, bottom: hAt(158), h: [25, 30, 35], hang: true, twin: [47.4, 65.4] },
-  chandelier: { x: 56.4, bottom: [hAt(255), hAt(240), hAt(225)], h: [45, 60, 75], hang: true },
-  poster: { x: 91.5, bottom: hAt(175), h: [55, 55, 55], hang: true },
-  shelf: { x: 91.5, bottom: hAt(125), h: [26, 40, 28], hang: true },
-  plant: { x: 95.5, bottom: FLOOR + 2, h: [70, 85, 110] },
-  table1: { x: 56.4, bottom: FLOOR + 2, h: [85, 88, 90] },
-  table2: { x: 37.6, bottom: 98, h: [85, 88, 88] },
-  table3: { x: 75.2, bottom: 98, h: [85, 88, 88] },
+/** Предметы на задней стене: x — % ширины стены, cm — высота нижнего края от пола. */
+const WALL_ART: Partial<Record<HallSlot, WallPlace>> = {
+  window1: { x: 27, cm: 80, wcm: 115 },
+  window2: { x: 73, cm: 80, wcm: 115 },
+  picture: { x: 50, cm: 115, h: [70, 80, 90] },
+  sconces: { x: 50, cm: 140, h: [42, 46, 50], twin: [40, 60] },
+  poster: { x: 91, cm: 165, h: [70, 70, 70] },
+  shelf: { x: 91, cm: 115, h: [34, 50, 36] },
 };
+/** Предметы на полу: x, y — точка опоры в % сцены. */
+const FLOOR_ART: Partial<Record<HallSlot, FloorPlace>> = {
+  table1: { x: 28, y: 61, h: [85, 88, 90] },
+  table3: { x: 72, y: 61, h: [85, 88, 88] },
+  table2: { x: 50, y: 91, h: [85, 88, 88] },
+  plant: { x: 91, y: 99, h: [70, 85, 110] },
+};
+const CHANDELIER = { x: 50, k: 1.3, h: [45, 60, 75] as [number, number, number] };
 
 const tierOf = (id: string) => Number(id.split('-').pop()) || 0;
 const pick = <T,>(v: T | [T, T, T], tier: number): T => (Array.isArray(v) ? v[tier] : v);
 
-function box(slot: HallSlot, id: string) {
-  const p = HALL_ART[slot];
-  const it = HALL_BY_ID[id];
-  const r = ratio(it.art);
-  const tier = tierOf(id);
-  if (p.wcm) return { w: p.wcm * HCMW, h: ((p.wcm * HCMW) / r) * (4 / 3) };
-  const h = pick(p.h ?? [80, 80, 80], tier) * HCM;
-  return { w: pick(p.h ?? [80, 80, 80], tier) * HCMW * r, h };
-}
-
-/** Порядок: стена → люстра → задний ряд → передний ряд. */
-const LAYER_ORDER: HallSlot[] = ['window1', 'window2', 'picture', 'sconces', 'poster', 'shelf', 'chandelier', 'plant', 'table1', 'table2', 'table3'];
+const WALL_ORDER: HallSlot[] = ['window1', 'window2', 'picture', 'sconces', 'poster', 'shelf'];
+const FLOOR_ORDER = (Object.keys(FLOOR_ART) as HallSlot[]).sort((a, b) => FLOOR_ART[a]!.y - FLOOR_ART[b]!.y);
 
 export function HallScene({ placed, wall, floor, name, onSlot, active }: { placed: Partial<Record<HallSlot, string>>; wall: string; floor: string; name: string; onSlot?: (s: HallSlot) => void; active?: HallSlot }) {
   const { state } = useGame();
   const w = HALL_WALL_BY_ID[wall] ?? HALL_WALLS[0];
   const fl = HALL_FLOOR_BY_ID[floor] ?? HALL_FLOORS[0];
-  const lit = (slot: HallSlot) => !!placed[slot];
+  const cls = (slot: HallSlot) => `layer ${onSlot ? 'tappable' : ''} ${active === slot ? 'active' : ''}`;
+  const tap = (slot: HallSlot) => (onSlot ? () => onSlot(slot) : undefined);
+  const empty = (slot: HallSlot, style: Record<string, string>) =>
+    onSlot ? <button class={`layer room-empty ${active === slot ? 'active' : ''}`} style={style} onClick={() => onSlot(slot)} aria-label={L(HALL_SLOTS[slot])} /> : null;
+  const ch = placed.chandelier && HALL_BY_ID[placed.chandelier];
   return (
-    <div class="scene scene-art scene-layers room-scene hall-scene" role="img" aria-label={t('hallTitle')}>
-      <WallLayer w={w} />
-      <Wainscot accent={w.accent ?? '#8a6a4f'} />
-      {/* свет из окон — тёплые трапеции на полу */}
-      {(['window1', 'window2'] as const).map((s) => (
-        <div class={`layer window-light ${placed[s] === `${s}-2` ? 'stained' : ''}`} style={{ left: `${HALL_ART[s].x}%`, width: `${(HALL_ART[s].wcm ?? 90) * HCMW * 1.6}%`, top: `${FLOOR}%` }} />
-      ))}
-      <Door name={name} />
-      <img class="layer room-floor" src={art(ART_RATIO[`hall-floor-${fl.id}`] ? `hall-floor-${fl.id}` : 'room-floor-hall')} style={ART_RATIO[`hall-floor-${fl.id}`] || fl.id === 'hf-oak' ? undefined : { filter: FLOOR_TINT[fl.id] }} alt="" draggable={false} />
-      <div class="layer baseboard-shade" style={{ top: `${FLOOR - 1.2}%` }} />
-      {lit('sconces') && HALL_ART.sconces.twin!.map((x) => <div class="layer sconce-wash" style={{ left: `${x}%`, bottom: `${100 - hAt(140)}%` }} />)}
-      {LAYER_ORDER.map((slot) => {
-        const p = HALL_ART[slot];
+    <div class="scene scene-layers room-scene hall-scene hall3d-scene" role="img" aria-label={t('hallTitle')}>
+      <div class="hall3d">
+        <div class="h3-floor">
+          <FloorSvg id={fl.id} rug />
+        </div>
+        <div class="h3-side h3-left">
+          <WallSvg w={w} width={SIDE_D} side="left" />
+        </div>
+        <div class="h3-side h3-right">
+          <WallSvg w={w} width={SIDE_D} side="right" />
+        </div>
+      </div>
+      <div class="h3-back">
+        <WallSvg w={w} width={WALL_W} />
+        <Door name={name} />
+        <div class="layer hall-sign" style={{ left: '1.5%', top: '6%' }}>
+          <LogoView logo={state.logo} size={18} />
+          <span>{name}</span>
+        </div>
+        {placed.sconces && <>{WALL_ART.sconces!.twin!.map((x) => <div class="layer sconce-wash" style={{ left: `${x}%`, bottom: `${wallH(110)}%` }} />)}</>}
+        {WALL_ORDER.map((slot) => {
+          const p = WALL_ART[slot]!;
+          const id = placed[slot];
+          const it = id ? HALL_BY_ID[id] : undefined;
+          if (!it || !id) return empty(slot, { left: `${p.x}%`, transform: 'translateX(-50%)', bottom: `${wallH(pick(p.cm, 1))}%`, width: '11%', height: '26%' });
+          const tier = tierOf(id);
+          const width = p.wcm ? wallW(p.wcm) : wallW(pick(p.h ?? [60, 60, 60], tier) * ratio(it.art));
+          return (
+            <>
+              {(p.twin ?? [p.x]).map((x) => (
+                <img class={cls(slot)} src={art(sprite(it.art))} style={{ left: `${x}%`, bottom: `${wallH(pick(p.cm, tier))}%`, width: `${width}%`, transform: 'translateX(-50%)' }} alt="" draggable={false} onClick={tap(slot)} />
+              ))}
+            </>
+          );
+        })}
+      </div>
+      {FLOOR_ORDER.map((slot) => {
+        const p = FLOOR_ART[slot]!;
+        const k = depthK(p.y);
         const id = placed[slot];
-        const tier = id ? tierOf(id) : 1;
-        const bottom = pick(p.bottom, tier);
-        if (!id) {
-          if (!onSlot) return null;
-          return <button class={`layer room-empty ${active === slot ? 'active' : ''}`} style={{ left: `${p.x}%`, transform: 'translateX(-50%)', bottom: `${100 - bottom}%`, height: `${p.hang ? 9 : 16}%`, width: `${p.hang ? 9 : 22}%` }} onClick={() => onSlot(slot)} aria-label={L(HALL_SLOTS[slot])} />;
-        }
-        const it = HALL_BY_ID[id];
-        if (!it) return null;
-        const b = box(slot, id);
-        const xs = p.twin ?? [p.x];
+        const it = id ? HALL_BY_ID[id] : undefined;
+        if (!it || !id) return empty(slot, { left: `${p.x}%`, transform: 'translateX(-50%)', bottom: `${100 - p.y}%`, width: `${13 * k}%`, height: `${7 * k}%` });
+        const hPct = pick(p.h, tierOf(id)) * U_CM * k / 3; // % высоты сцены (300 ед.)
+        const wPct = hPct * 0.75 * ratio(it.art);
         return (
           <>
-            {slot === 'chandelier' && <div class="layer lamp-glow hall-glow" style={{ left: `${p.x}%`, width: `${b.h * 2.2}%`, bottom: `${100 - bottom - b.h * 0.6}%` }} />}
-            {xs.map((x) => (
-              <>
-                {!p.hang && <div class="layer contact" style={{ left: `${x}%`, width: `${b.w * 0.85}%`, bottom: `${100 - bottom - 1}%` }} />}
-                <img
-                  class={`layer ${onSlot ? 'tappable' : ''} ${active === slot ? 'active' : ''}`}
-                  src={art(sprite(it.art))}
-                  style={{ left: `${x}%`, bottom: `${100 - bottom}%`, width: `${b.w}%`, transform: 'translateX(-50%)' }}
-                  alt=""
-                  draggable={false}
-                  onClick={onSlot ? () => onSlot(slot) : undefined}
-                />
-              </>
-            ))}
+            <div class="layer contact" style={{ left: `${p.x}%`, width: `${wPct * 0.85}%`, bottom: `${100 - p.y - 1.2}%`, height: `${2.4 * k}%` }} />
+            <img class={cls(slot)} src={art(sprite(it.art))} style={{ left: `${p.x}%`, bottom: `${100 - p.y}%`, width: `${wPct}%`, transform: 'translateX(-50%)' }} alt="" draggable={false} onClick={tap(slot)} />
           </>
         );
       })}
-      <div class="layer hall-sign" style={{ left: '1.5%', top: `${hAt(262)}%` }}>
-        <LogoView logo={state.logo} size={18} />
-        <span>{name}</span>
-      </div>
+      {ch ? (
+        <>
+          <div class="layer lamp-glow hall-glow" style={{ left: `${CHANDELIER.x}%`, width: '34%', top: '2%' }} />
+          <img
+            class={cls('chandelier')}
+            src={art(sprite(ch.art))}
+            style={{ left: `${CHANDELIER.x}%`, top: 0, width: `${(pick(CHANDELIER.h, tierOf(placed.chandelier!)) * U_CM * CHANDELIER.k * ratio(ch.art)) / 4}%`, transform: 'translateX(-50%)' }}
+            alt=""
+            draggable={false}
+            onClick={tap('chandelier')}
+          />
+        </>
+      ) : (
+        empty('chandelier', { left: `${CHANDELIER.x}%`, transform: 'translateX(-50%)', top: '1%', width: '10%', height: '10%' })
+      )}
       <div class="layer room-vignette" />
     </div>
   );
 }
 
-/** Пока нет картинок пола — перекраска паркета. */
-const FLOOR_TINT: Record<string, string> = {
-  'hf-tile': 'grayscale(1) contrast(1.4) brightness(1.05)',
-  'hf-terrazzo': 'sepia(0.3) saturate(0.5) brightness(1.15)',
-  'hf-herring': 'sepia(0.5) saturate(1.3) brightness(0.9)',
-};
-
-/** Панели до 100 см и карниз под потолком — главный признак заведения (разбор визуала). */
-function Wainscot({ accent }: { accent: string }) {
-  const top = (hAt(100) / 100) * 300;
-  const fl = (FLOOR / 100) * 300;
+/** Стена: узор обоев, панели до 100 см, плинтус. side — боковая стена (затемнена, угол у задней стены). */
+function WallSvg({ w, width, side }: { w: (typeof HALL_WALLS)[number]; width: number; side?: 'left' | 'right' }) {
+  const id = `hw${++uid}`;
+  const size = SIZE[w.pattern] ?? 24;
+  const panelTop = WALL_H - 100 * U_CM;
+  const base = WALL_H - 8 * U_CM;
+  const panel = w.pattern === 'panel' ? w.accent ?? w.ink : w.accent ?? '#c9a27e';
+  const boards = Math.ceil(width / 11);
+  const corner = side === 'left' ? width : 0;
   return (
-    <svg class="layer-base" viewBox="0 0 400 300" preserveAspectRatio="none" aria-hidden="true">
-      <rect x="0" y={top} width="400" height={fl - top} fill={accent} opacity="0.55" />
-      {Array.from({ length: 16 }, (_, i) => (
-        <rect x={i * 25 + 3} y={top + 6} width="19" height={fl - top - 12} rx="1.5" fill="none" stroke="#5b3b2b40" stroke-width="1" />
+    <svg class="layer-base" viewBox={`0 0 ${width} ${WALL_H}`} preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <pattern id={id} width={size} height={size} patternUnits="userSpaceOnUse">
+          <rect width={size} height={size} fill={w.base} />
+          <g transform={`scale(${size / (w.pattern === 'tiles' ? 12 : 24)})`}>
+            <Motif w={w} />
+          </g>
+        </pattern>
+      </defs>
+      <rect width={width} height={WALL_H} fill={w.pattern === 'panel' ? w.base : `url(#${id})`} />
+      <rect x="0" y={panelTop} width={width} height={base - panelTop} fill={panel} opacity={w.pattern === 'panel' ? 1 : 0.6} />
+      {Array.from({ length: boards }, (_, i) => (
+        <line x1={i * 11 + 5.5} x2={i * 11 + 5.5} y1={panelTop + 3} y2={base} stroke="#5b3b2b" stroke-opacity="0.22" stroke-width="0.9" />
       ))}
-      <rect x="0" y={top - 3} width="400" height="4" fill="#c98f5e" stroke="#5b3b2b" stroke-width="0.8" />
-      <rect x="0" y="0" width="400" height="5" fill="#00000014" />
+      <rect x="-1" y={panelTop - 2.5} width={width + 2} height="3.5" fill={w.pattern === 'panel' ? w.ink : '#c98f5e'} stroke="#5b3b2b" stroke-width="0.7" />
+      <rect x="-1" y={base} width={width + 2} height={WALL_H - base + 1} fill="#c98f5e" stroke="#5b3b2b" stroke-width="0.8" />
+      <rect width={width} height="10" fill="#5a3a24" opacity="0.08" />
+      {side && <rect width={width} height={WALL_H} fill="#5a3a24" opacity="0.13" />}
+      {side && <line x1={corner} x2={corner} y1="0" y2={WALL_H} stroke="#5b3b2b" stroke-width="1.6" />}
+    </svg>
+  );
+}
+let uid = 0;
+
+/** Пол сверху (перспективу даёт CSS 3D). Узоры рисуются вектором в стиле игры: тёплые тона, коричневая обводка. */
+export function FloorSvg({ id, rug, swatch }: { id: string; rug?: boolean; swatch?: boolean }) {
+  const pid = `hf${++uid}`;
+  const W = swatch ? 120 : WALL_W;
+  const H = swatch ? 60 : SIDE_D;
+  return (
+    <svg class={swatch ? 'floor-swatch' : 'layer-base'} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <FloorPattern id={id} pid={pid} />
+      </defs>
+      <rect width={W} height={H} fill={`url(#${pid})`} />
+      {rug && (
+        <g>
+          <ellipse cx={W / 2} cy={H * 0.74} rx={W * 0.27} ry={H * 0.15} fill="#a9c99a" stroke="#5b3b2b" stroke-width="1.6" />
+          <ellipse cx={W / 2} cy={H * 0.74} rx={W * 0.27 - 7} ry={H * 0.15 - 5} fill="none" stroke="#7fa874" stroke-width="1.6" />
+        </g>
+      )}
+      {!swatch && <rect width={W} height="14" fill="#5a3a24" opacity="0.1" />}
     </svg>
   );
 }
 
-/** Входная дверь (пока рисуем вектором, спрайт hall-door заменит). */
-function Door({ name }: { name: string }) {
-  const w = 95 * HCMW;
-  if (ART_RATIO['hall-door']) {
-    return <img class="layer" src={art('hall-door')} style={{ left: '10.3%', bottom: `${100 - FLOOR}%`, width: `${w}%`, transform: 'translateX(-50%)' }} alt={name} draggable={false} />;
+const LINE = '#5b3b2b';
+function FloorPattern({ id, pid }: { id: string; pid: string }) {
+  switch (id) {
+    case 'hf-herring':
+      // ёлочка: дощечки 4×16 под 45°, как на превью
+      return (
+        <pattern id={pid} width="24" height="24" patternUnits="userSpaceOnUse" patternTransform="rotate(45) scale(1.35)">
+          <rect width="24" height="24" fill="#f2c27e" />
+          <rect x="0" y="0" width="12" height="6" fill="#efbb74" stroke={LINE} stroke-opacity="0.45" stroke-width="0.8" />
+          <rect x="12" y="0" width="6" height="12" fill="#f5ca8a" stroke={LINE} stroke-opacity="0.45" stroke-width="0.8" />
+          <rect x="18" y="0" width="6" height="12" fill="#efbb74" stroke={LINE} stroke-opacity="0.45" stroke-width="0.8" />
+          <rect x="0" y="6" width="12" height="6" fill="#f5ca8a" stroke={LINE} stroke-opacity="0.45" stroke-width="0.8" />
+          <rect x="0" y="12" width="6" height="12" fill="#efbb74" stroke={LINE} stroke-opacity="0.45" stroke-width="0.8" />
+          <rect x="6" y="12" width="6" height="12" fill="#f5ca8a" stroke={LINE} stroke-opacity="0.45" stroke-width="0.8" />
+          <rect x="12" y="12" width="12" height="6" fill="#efbb74" stroke={LINE} stroke-opacity="0.45" stroke-width="0.8" />
+          <rect x="12" y="18" width="12" height="6" fill="#f5ca8a" stroke={LINE} stroke-opacity="0.45" stroke-width="0.8" />
+        </pattern>
+      );
+    case 'hf-tile':
+      return (
+        <pattern id={pid} width="28" height="28" patternUnits="userSpaceOnUse">
+          <rect width="28" height="28" fill="#fbf1e0" />
+          <rect width="14" height="14" fill="#8a6450" />
+          <rect x="14" y="14" width="14" height="14" fill="#8a6450" />
+          <path d="M0 0H28V28" fill="none" stroke={LINE} stroke-opacity="0.35" stroke-width="0.8" />
+        </pattern>
+      );
+    case 'hf-terrazzo':
+      return (
+        <pattern id={pid} width="40" height="40" patternUnits="userSpaceOnUse">
+          <rect width="40" height="40" fill="#f4e7d6" />
+          {[[5, 7, '#f3a6a0'], [18, 4, '#9cc59a'], [30, 12, '#f6d27a'], [10, 22, '#b9a6e3'], [24, 27, '#f3a6a0'], [35, 33, '#9cc59a'], [4, 35, '#c9a27e'], [17, 15, '#c9a27e'], [29, 22, '#b9a6e3']].map(([x, y, c], i) => (
+            <path d={`M${x} ${y} l${2 + (i % 3)} -1 l1 ${2 + (i % 2)} l-${3 + (i % 2)} 1 z`} fill={c as string} opacity="0.75" />
+          ))}
+        </pattern>
+      );
+    default:
+      // дубовые доски вдоль взгляда, со сдвигом стыков
+      return (
+        <pattern id={pid} width="30" height="60" patternUnits="userSpaceOnUse">
+          <rect width="30" height="60" fill="#e9b97c" />
+          <rect x="10" width="10" height="60" fill="#e2b072" />
+          <path d="M0 0V60M10 0V60M20 0V60M0 22H10M10 48H20M20 8H30" fill="none" stroke={LINE} stroke-opacity="0.42" stroke-width="0.8" />
+        </pattern>
+      );
   }
-  return (
-    <svg class="layer" viewBox="0 0 95 220" style={{ left: '10.3%', bottom: `${100 - FLOOR}%`, width: `${w}%`, transform: 'translateX(-50%)' }} aria-hidden="true">
-      <rect x="1" y="1" width="93" height="219" rx="3" fill="#7a5238" stroke="#3b2a20" stroke-width="2" />
-      <rect x="8" y="8" width="79" height="204" rx="2" fill="#9a6a48" stroke="#3b2a20" stroke-width="1.5" />
-      <rect x="16" y="16" width="63" height="88" rx="2" fill="#cfe6ee" stroke="#3b2a20" stroke-width="1.5" />
-      <path d="M47.5 16 V104 M16 60 H79" stroke="#3b2a20" stroke-width="1.5" />
-      <rect x="16" y="118" width="63" height="84" rx="2" fill="none" stroke="#3b2a20" stroke-width="1.5" />
-      <circle cx="80" cy="122" r="3.5" fill="#d9b25a" stroke="#3b2a20" stroke-width="1" />
-    </svg>
-  );
+}
+
+/** Входная дверь на задней стене слева. */
+function Door({ name }: { name: string }) {
+  return <img class="layer" src={art('hall-door')} style={{ left: '7%', bottom: 0, width: `${wallW(95)}%`, transform: 'translateX(-50%)' }} alt={name} draggable={false} />;
 }
 
 /** Вкладка «Зал»: сцена + выбор предметов, обоев и пола (управляющий, из бюджета). */
@@ -234,7 +331,7 @@ export function HallTab() {
                   {slot === 'wall' ? (
                     <WallSwatch w={sf as (typeof HALL_WALLS)[number]} />
                   ) : (
-                    <img class="floor-swatch" src={art(ART_RATIO[`hall-floor-${sf.id}`] ? `hall-floor-${sf.id}` : 'room-floor-hall')} alt="" draggable={false} />
+                    <FloorSvg id={sf.id} swatch />
                   )}
                   <div class="grow">
                     <div>{L(sf.name)}</div>

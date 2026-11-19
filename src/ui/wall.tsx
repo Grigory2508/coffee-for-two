@@ -5,7 +5,7 @@ import type { Wallpaper } from '../core/content';
 
 let uid = 0;
 
-function Motif({ w }: { w: Wallpaper }) {
+export function Motif({ w }: { w: Wallpaper }) {
   const ink = w.ink;
   switch (w.pattern) {
     case 'stripes':
@@ -56,7 +56,7 @@ function Motif({ w }: { w: Wallpaper }) {
   }
 }
 
-const SIZE: Record<string, number> = { stripes: 30, dots: 32, flowers: 34, diamonds: 32, herringbone: 30, check: 32, tiles: 12, panel: 24, plain: 24 };
+export const SIZE: Record<string, number> = { stripes: 30, dots: 32, flowers: 34, diamonds: 32, herringbone: 30, check: 32, tiles: 12, panel: 24, plain: 24 };
 
 /** Стена во всю сцену (пол и плинтус лягут поверх). */
 export function WallLayer({ w }: { w: Wallpaper }) {
