@@ -2807,3 +2807,36 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .logo-groups { max-height: none !important; overflow: visible !important; }
 .brand-preview { position: sticky; top: 0; z-index: 3; background: var(--paper); padding: 6px 0; }
 .logo-opt.on { border-color: var(--outline) !important; background: var(--butter) !important; box-shadow: 0 2px 0 var(--outline); }
+
+/* ---------- этап 2 аудита: смена ---------- */
+/* сцена фиксированной высоты, панель плиток забирает остаток и скроллится сама — кнопки не прыгают */
+.shift { height: 100svh; min-height: 0 !important; overflow: hidden; }
+.shift-scene { flex: 0 0 auto !important; height: clamp(130px, 25svh, 220px); min-height: 0 !important; }
+.bottom-panel { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.counter-row .order-card { height: 54px; }
+.counter-bar { flex: none; }
+/* ненужный шаг: «Пропустить» мягко пульсирует */
+.skip-btn.hint:not(:disabled) { animation: skipPulse 1.1s ease-in-out infinite; background: var(--butter) !important; }
+@keyframes skipPulse { 50% { transform: scale(1.08); box-shadow: 0 0 0 4px #ffd87388; } }
+.skip-note { color: #b07a2a; font-weight: 800; }
+.step-hint { grid-column: 1 / -1; padding: 10px; text-align: center; }
+/* молоко: шапка «горячее | холодное», строки — виды молока */
+.dairy-head { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-weight: 800; color: var(--coffee); text-align: center; }
+.dairy-grid .opt.gap-left { margin-left: 6px; }
+/* реплика гостя — главный «тикет» заказа */
+.cs-chip.to-go { font-weight: 800; font-size: 12px; padding: 2px 8px; }
+.cs-chip.to-go.away { background: #ffe1a8; }
+.cs-chip.to-go.here { background: #e3efd2; }
+.skip-btn.hint:not(:disabled) { animation: skipGlow 1.1s ease-in-out infinite !important; }
+@keyframes skipGlow { 50% { box-shadow: 0 0 0 5px #ffd873aa; } }
+.counter-row .order-card { min-width: 0; overflow: hidden; }
+.counter-row .order-card .order-text { min-width: 0; }
+.counter-row .order-card .order-name { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.cs-queue { position: absolute; left: 6px; top: 6px; z-index: 2; margin: 0; padding: 3px 8px; background: #fff7eadd; border: 2px solid var(--outline); border-radius: 12px; display: flex; align-items: center; gap: 4px; }
+.step-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.steps-col .recipe-strip { min-height: 74px; align-content: flex-start; }
+.dairy-grid .opt.gap-left { margin-left: 0 !important; }
+.dairy-grid { column-gap: 6px; }
+.dairy-grid .opt { min-width: 0; }
+.steps-col .recipe-strip { min-height: 98px; }
+@media (max-width: 370px) { .steps-col .recipe-strip { min-height: 112px; } }

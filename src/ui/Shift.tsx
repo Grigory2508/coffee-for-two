@@ -4,7 +4,7 @@ import {
   BASES,
   BASE_ORDER,
   CONFIG,
-  DAIRY_GRID,
+  MILK_ORDER,
   DESSERTS,
   DESSERT_ORDER,
   DRINKS,
@@ -305,8 +305,9 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
       case 'flavor':
         return (
           <div class="opt-grid grid4">
-            {FLAVOR_ORDER.map((f) => {
-              const open = menuFlavors.has(f);
+            {!FLAVOR_ORDER.some((f) => menuFlavors.has(f)) && <div class="step-hint muted small">{t('noFlavorsYet')}</div>}
+            {FLAVOR_ORDER.filter((f) => menuFlavors.has(f)).map((f) => {
+              const open = true;
               const n = left(`syr_${f}`);
               return (
                 <button class={`opt cell ${open ? '' : 'locked'}`} data-k={`flavor:${f}`} disabled={!open || n <= 0} onClick={() => choose({ flavor: f }, f)} aria-label={L(FLAVORS[f].name)}>
@@ -321,12 +322,13 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
       case 'dairy':
         return (
           <div class="opt-grid grid4 dairy-grid">
-            {DAIRY_GRID.map((d: DairyPick, k) => {
-              const open = milks.includes(d.kind);
+            <div class="dairy-head small"><span>♨ {t('hot')}</span><span>❄ {t('cold')}</span></div>
+            {MILK_ORDER.filter((kind) => milks.includes(kind)).flatMap((kind) => (['hot', 'cold'] as const).flatMap((temp) => (['milk', 'cream'] as const).map((type) => ({ kind, type, temp }) as DairyPick))).map((d: DairyPick, k) => {
+              const open = true;
               const n = left(dairyStock(d.kind, d.type));
               return (
                 <button
-                  class={`opt cell ${open ? '' : 'locked'} ${d.temp} ${k % 4 === 2 ? 'gap-left' : ''} ${k === 8 ? 'gap-top' : ''}`}
+                  class={`opt cell ${d.temp} ${k % 4 === 2 ? 'gap-left' : ''}`}
                   data-k={`dairy:${d.kind}-${d.type}-${d.temp}`}
                   disabled={!open || n <= 0}
                   onClick={() => choose({ dairy: d }, `${d.kind}${d.type}${d.temp}`)}
@@ -340,10 +342,6 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
                 </button>
               );
             })}
-            <div class="dairy-legend small muted">
-              <span>{t('milkLeft')}</span>
-              <span>{t('creamRight')}</span>
-            </div>
           </div>
         );
       case 'texture':
@@ -410,6 +408,8 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
   }
 
   const recipeSteps = sel ? expectedCup(sel) : null;
+  // текущий шаг этому напитку не нужен — подсвечиваем «Пропустить»
+  const notNeeded = !!step && !!recipeSteps && step !== 'vessel' && step !== 'base' && !timer && !wantItems(recipeSteps).some((x) => x.id === step);
 
   return (
     <div class="shift">
@@ -485,17 +485,6 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         })}
         {!counter.length && <div class="order-card empty muted small">{queue.length || plan.guests.some((g, i) => g.arriveMs > elapsed && !results.has(i)) ? t('nextGuest') : '…'}</div>}
       </div>
-      {queue.length > 0 && (
-        <div class="queue-strip small">
-          {t('inQueue')}:{' '}
-          <span class="queue-heads">
-            {queue.slice(0, 8).map((q) => (
-              <Head i={q.i} size={22} />
-            ))}
-          </span>
-          {queue.length > 8 && ` +${queue.length - 8}`}
-        </div>
-      )}
 
       {/* Стойка: фон, выбранный гость за прилавком, передняя часть прилавка поверх, реплика с заказом */}
       <div class="shift-scene counter-scene">
@@ -506,6 +495,17 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
         <div class="cs-inner">
           <img class="cs-front" src={art('scene-counter-front')} alt="" draggable={false} />
         </div>
+        {queue.length > 0 && (
+          <div class="queue-strip cs-queue small">
+            {t('inQueue')}:{' '}
+            <span class="queue-heads">
+                {queue.slice(0, 8).map((q) => (
+                  <Head i={q.i} size={22} />
+                ))}
+            </span>
+            {queue.length > 8 && ` +${queue.length - 8}`}
+          </div>
+        )}
         {sel && (
           <div class="cs-bubble">
             {sel.regular && <span class="cs-who">★ {L(REGULARS[sel.regular].name)}</span>}
@@ -521,7 +521,7 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
                   + <DessertIcon d={sel.dessert} size={18} />
                 </span>
               )}
-              <span class="cs-chip">{sel.takeaway ? '🥤' : '☕'}</span>
+              <span class={`cs-chip to-go ${sel.takeaway ? 'away' : 'here'}`}>{sel.takeaway ? `🥤 ${t('toGoWord')}` : `☕ ${t('hereWord')}`}</span>
             </span>
           </div>
         )}
@@ -557,13 +557,14 @@ export function Shift({ plan, onDone }: { plan: ShiftPlan; onDone: (results: Gue
           </div>
           <div class="step-title">
             {step ? `${STEP_NUM[step]}. ${L(STEP_NAMES[step])}` : t('stepsOver')}
+            {notNeeded && <span class="skip-note"> · {t('notNeededStep')}</span>}
           </div>
           {sel && recipeSteps && <RecipeStrip want={recipeSteps} cup={cup} step={step} name={nb(L(DRINKS[sel.order].name))} />}
           <div class="counter-actions">
             <button class="btn ghost small" disabled={!cup.vessel || !!timer} onClick={pourOut} aria-label={t('pour')}>
               🗑
             </button>
-            <button class="btn small skip-btn" disabled={!step || step === 'vessel' || step === 'base' || !!timer} onClick={skip} aria-label={t('skipStep')} title={t('skipStep')}>
+            <button class={`btn small skip-btn ${notNeeded ? 'hint' : ''}`} disabled={!step || step === 'vessel' || step === 'base' || !!timer} onClick={skip} aria-label={t('skipStep')} title={t('skipStep')}>
               ⏭
             </button>
             <button class="btn primary serve-btn" disabled={!canServe} onClick={serve}>
@@ -626,7 +627,6 @@ function RecipeStrip({ want, cup, step, name }: { want: Cup; cup: Cup; step: Ste
   const has = (id: StepId) => (cup as Record<string, unknown>)[id] != null && (cup as Record<string, unknown>)[id] !== false;
   return (
     <div class="recipe-strip" aria-label={name}>
-      <b>{name}:</b>
       {items.map((it) => (
         <span class={`rs-step ${has(it.id) ? 'done' : ''} ${step === it.id ? 'now' : ''} ${it.id === 'dairy' && want.dairy ? want.dairy.temp : ''}`}>
           {has(it.id) ? '✓ ' : ''}
