@@ -53,3 +53,13 @@
 
 ## Принятие
 Числами против эталона (G1/G2): цвет линий R−B > 0 (тёплый), светлота линий, доля пастели. Глазами — Гриша по скриншотам сцен.
+
+## K1 — кот, 3 настроения (аудит 19.11), лист 3×1, белый фон
+Референс: G2 (зал). Имена по порядку: `cat-happy,cat-calm,cat-sad`.
+Нарезка: `GRID=3x1 python3 scripts/art/objs.py <лист> public/art cat-happy,cat-calm,cat-sad 0.6`.
+> STYLE … A character sheet of ONE ginger tabby cat, the same cat three times in a row on a pure white background, same size, same camera (slight 3/4 view from the front, as if sitting on the floor of the room in the reference), full body, each pose in its own cell with wide empty margins: 1) HAPPY — sitting upright, eyes closed in a smile, tail curled up like a question mark, tiny pink blush; 2) CALM — loaf pose lying on the floor, eyes half open, relaxed; 3) SAD — sitting hunched, ears slightly down, big round eyes, tail wrapped around paws. Soft cream belly and paws, white chest patch, pink nose. Simple, cute, readable at 60 px. DO NOT: text, letters, numbers, floor, rug, background objects, cast shadows, collars with text, duplicates beyond the three poses.
+
+## K2 — иконки интерфейса (аудит 19.11), лист 4×3, белый фон
+Референс: G2 (зал). Имена по порядку: `ic-counter,ic-cafe,ic-home,ic-top,ic-team,ic-office,ic-barista,ic-manager,ic-gem,ic-ads-paper,ic-ads-social,ic-gift`.
+Нарезка: `GRID=4x3 python3 scripts/art/objs.py <лист> public/art <имена> 0.6`.
+> STYLE … An icon sheet for a cozy cafe game: 12 separate chunky icons in a strict 4×3 grid on a pure white background, each icon centered in its cell with wide empty margins, all icons the same visual size and weight, thick warm dark-brown outline, flat pastel fills, readable at 24 px. Row 1: a steaming coffee cup on a saucer; a tiny cafe storefront with a striped pink awning; a cozy little house with a heart window; a golden trophy cup with a star. Row 2: two overlapping speech bubbles (pink and lavender); a clipboard with a checklist; a barista apron with a coffee bean pocket; a notebook with a pencil and a little box. Row 3: a faceted lavender gem; a folded newspaper with a coffee cup picture; a smartphone with a heart on screen; a gift box with a butter-yellow ribbon. DO NOT: text, letters, numbers, logos, backgrounds, frames around icons, cast shadows, duplicates.

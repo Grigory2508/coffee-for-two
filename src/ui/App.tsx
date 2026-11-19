@@ -9,7 +9,7 @@ import { now as clockNow, resetTime, skipTime, timeOffset } from '../platform/cl
 import { config } from '../platform/config';
 import { getIdentity } from '../platform/identity';
 import { tg } from '../platform/telegram';
-import { CafeArt } from './icons';
+import { CafeArt, UiIcon } from './icons';
 import { describeLog, GameCtx, timeAgo, useGame, type Game } from './game';
 import { CafeInfoTab, CounterTab, Header, OfficeTab, RoomTab, ShiftResult, TeamTab, teamBadge } from './screens';
 import { RatingsTab } from './social';
@@ -371,16 +371,16 @@ export function App() {
               <nav class="tabs">
                 {(
                   [
-                    ['work', isManager ? '📋' : '☕', isManager ? t('tabOffice') : t('tabCounter'), lowN],
-                    ['cafe', '🏪', t('tabCafe'), 0],
-                    ['home', '🏠', t('tabHome'), 0],
-                    ['top', '🏆', t('tabTop'), 0],
-                    ['team', '💬', t('tabTeam'), tBadge],
+                    ['work', isManager ? 'office:📋' : 'counter:☕', isManager ? t('tabOffice') : t('tabCounter'), lowN],
+                    ['cafe', 'cafe:🏪', t('tabCafe'), 0],
+                    ['home', 'home:🏠', t('tabHome'), 0],
+                    ['top', 'top:🏆', t('tabTop'), 0],
+                    ['team', 'team:💬', t('tabTeam'), tBadge],
                   ] as [Tab, string, string, number][]
                 ).map(([id, icon, label, badge]) => (
                   <button class={`tab-btn ${tab === id ? 'on' : ''}`} onClick={() => go(id)}>
                     <span class="tab-icon">
-                      {icon}
+                      <UiIcon name={icon.split(':')[0]} emoji={icon.split(':')[1]} size={26} />
                       {badge > 0 && <span class="badge">{badge}</span>}
                     </span>
                     <span class="tab-label">{label}</span>
@@ -465,7 +465,7 @@ function Welcome({ onCreate, toastText }: { onCreate: (name: string, role: Role,
         <div class="role-cards">
           {(['barista', 'manager'] as Role[]).map((r) => (
             <button class={`role-card ${role === r ? 'on' : ''}`} onClick={() => setRole(r)}>
-              <span class="role-icon">{ROLES[r].icon}</span>
+              <span class="role-icon"><UiIcon name={r} emoji={ROLES[r].icon} size={34} /></span>
               <b>{L(ROLES[r].name)}</b>
               <span class="muted small">{L(ROLES[r].desc)}</span>
             </button>
@@ -513,7 +513,7 @@ function Invite({ peek, onApply, onOwn, toastText }: { peek: CafePeek | null; on
                 const free = peek.freeRoles.includes(r);
                 return (
                   <button class={`role-card ${chosen === r ? 'on' : ''}`} disabled={!free} onClick={() => setRole(r)}>
-                    <span class="role-icon">{ROLES[r].icon}</span>
+                    <span class="role-icon"><UiIcon name={r} emoji={ROLES[r].icon} size={34} /></span>
                     <b>{L(ROLES[r].name)}</b>
                     <span class="muted small">{L(ROLES[r].desc)}</span>
                     <span class="small">{t('roleSlots', { n, max: CONFIG.roleMax[r] })}</span>

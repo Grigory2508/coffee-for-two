@@ -2921,3 +2921,6 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .regular-teaser { display: flex; align-items: center; gap: 10px; }
 .regular-more { display: inline-flex; gap: 2px; }
 .card.regular-teaser { display: flex !important; flex-direction: row !important; align-items: center; text-align: left; }
+.ui-icon { display: inline-block; vertical-align: middle; object-fit: contain; }
+.cat-sprite { height: auto; }
+img.cat-portrait { width: 96px; height: auto; }

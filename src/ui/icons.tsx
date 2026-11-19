@@ -1,3 +1,4 @@
+import { ART_RATIO } from './artSizes';
 import { type CafeDecorSlot, type CafeSlot, type DairyType, type DessertId, type MilkKind, type StockId } from '../core/content';
 
 // Арт из Gemini (Nano Banana): иконки и сцены лежат в public/art как WebP.
@@ -70,3 +71,8 @@ export const WalletIcon = ({ size = 16 }: { size?: number }) => (
     <circle cx="16" cy="13.5" r="1" fill="#5b3b2b" />
   </svg>
 );
+
+/** Рисованная иконка интерфейса (ic-*.webp); пока картинки нет — эмодзи. */
+export function UiIcon({ name, emoji, size = 22 }: { name: string; emoji: string; size?: number }) {
+  return ART_RATIO[`ic-${name}`] ? <img class="ui-icon" src={art(`ic-${name}`)} width={size} height={size} alt="" draggable={false} /> : <span class="ui-emoji">{emoji}</span>;
+}

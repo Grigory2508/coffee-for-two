@@ -27,7 +27,12 @@ export function CatShape({ mood }: { mood: number }) {
   );
 }
 
+/** Спрайт кота по настроению (cat-happy / cat-calm / cat-sad); без арта — векторный кот. */
+export const catSprite = (mood: number) => (mood > 66 ? 'cat-happy' : mood > 33 ? 'cat-calm' : 'cat-sad');
+export const hasCatArt = () => !!ART_RATIO['cat-happy'];
+
 export function CatPortrait({ mood }: { mood: number }) {
+  if (hasCatArt()) return <img class="cat-portrait" src={art(catSprite(mood))} alt="" draggable={false} />;
   return (
     <svg viewBox="-12 -2 140 100" class="cat-portrait" aria-hidden="true">
       <CatShape mood={mood} />
@@ -158,9 +163,13 @@ export function RoomScene({ kind = 'hall', placed, catMood, onSlot, locked, wall
         );
       })}
       {catMood !== null && (
-        <svg viewBox="-12 -2 140 100" class="layer room-cat" style={{ left: '30%', width: '12%', bottom: '4%' }} aria-hidden="true">
+hasCatArt() ? (
+          <img class="layer room-cat cat-sprite" src={art(catSprite(catMood))} style={{ left: '30%', width: '14%', bottom: '4%' }} alt="" draggable={false} />
+        ) : (
+                  <svg viewBox="-12 -2 140 100" class="layer room-cat" style={{ left: '30%', width: '12%', bottom: '4%' }} aria-hidden="true">
           <CatShape mood={catMood} />
         </svg>
+        )
       )}
       <div class="layer room-vignette" />
     </div>

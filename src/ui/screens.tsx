@@ -43,7 +43,7 @@ import { expectedCup } from '../core/assembly';
 import { LogoView } from './logo';
 import { BrandCard, ShopSheet } from './social';
 import { HallTab } from './hall';
-import { CafeArt, Coin, GuestHead, Img, StockIcon, WalletIcon } from './icons';
+import { CafeArt, Coin, GuestHead, Img, StockIcon, UiIcon, WalletIcon } from './icons';
 import { describeLog, playerName, roleName, roomTitle, timeAgo, useGame } from './game';
 
 // ---------- общие куски ----------
@@ -131,7 +131,7 @@ function VitalsSheet({ p, v, onClose }: { p: Player; v: Vitals; onClose: () => v
       </div>
       <div class="row gap">
         <span class="small grow">
-          💎 {t('gemsLine', { n: p.gems ?? 0 })}
+          <UiIcon name="gem" emoji="💎" size={18} /> {t('gemsLine', { n: p.gems ?? 0 })}
         </span>
         <button class="btn small primary" onClick={() => setShop(true)}>
           {t('shopOpen')}
@@ -224,7 +224,7 @@ function TeamCard({ manage }: { manage?: boolean }) {
         const status = staffStatus(state, p.id, now);
         return (
           <div class="row staff-row">
-            <span class="avatar small-avatar">{p.isNpc ? '🧓' : ROLES[p.role].icon}</span>
+            <span class="avatar small-avatar">{p.isNpc ? '🧓' : <UiIcon name={p.role} emoji={ROLES[p.role].icon} size={24} />}</span>
             <div class="grow">
               <b>{p.name}</b>
               {p.id === me.id && <span class="muted small"> · {t('you')}</span>}
