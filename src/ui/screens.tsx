@@ -43,7 +43,7 @@ import { expectedCup } from '../core/assembly';
 import { LogoView } from './logo';
 import { BrandCard, ShopSheet } from './social';
 import { HallTab } from './hall';
-import { CafeArt, Coin, GuestHead, Img, StockIcon } from './icons';
+import { CafeArt, Coin, GuestHead, Img, StockIcon, WalletIcon } from './icons';
 import { describeLog, playerName, roleName, roomTitle, timeAgo, useGame } from './game';
 
 // ---------- общие куски ----------
@@ -57,54 +57,57 @@ export function Stars({ value }: { value: number | null }) {
   );
 }
 
-/** Закреплённая шапка: название и рейтинг, деньги, свои силы, тревога по складу. */
+/** Закреплённая шапка: название и рейтинг, бюджет кофейни, свой кошелёк и бодрость, тревога по складу. */
 export function Header({ onRating, onAlert, extra }: { onRating?: () => void; onAlert?: () => void; extra?: preact.ComponentChildren }) {
   const { state, me, now } = useGame();
   const p = getPlayer(state, me.id);
   const v = p ? vitalsNow(state, p, now) : null;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<null | 'budget' | 'me'>(null);
   const low = lowStock(state);
+  const toggle = (m: 'budget' | 'me') => setOpen(open === m ? null : m);
   return (
     <header class="hud">
-      <button class="hud-name" onClick={onRating}>
-        <LogoView logo={state.logo} size={34} />
-        <span class="hud-title">
-          <b>{state.name}</b>
-          <Stars value={rating(state)} />
-        </span>
-      </button>
-      <div class="hud-stats">
+      <div class="hud-left">
+        <button class="hud-name" onClick={onRating}>
+          <LogoView logo={state.logo} size={34} />
+          <span class="hud-title">
+            <b>{state.name}</b>
+            <Stars value={rating(state)} />
+          </span>
+        </button>
         {low.length > 0 && (
-          <button class="hud-chip warn" onClick={onAlert} aria-label={t('stockAlert', { items: '' })}>
-            ⚠ {low.map((k) => <StockIcon k={k} size={18} />)}
+          <button class="hud-alert" onClick={onAlert} aria-label={t('stockAlert', { items: '' })} title={t('stockAlert', { items: '' })}>
+            {low.length}
           </button>
         )}
-        <button class="hud-chip" title={t('budget')} onClick={() => setOpen(!open)}>
-          <Coin /> <b>{fmtNum(state.money)}</b>
+      </div>
+      <div class="hud-stats">
+        <button class={`hud-chip ${open === 'budget' ? 'on' : ''}`} title={t('budget')} onClick={() => toggle('budget')}>
+          <Coin size={18} /> <b>{fmtNum(state.money)}</b>
         </button>
         {p && v && (
-          <button class="hud-chip vitals-chip" onClick={() => setOpen(!open)} aria-label={t('vitalsTitle')}>
-            <span title={t('wallet')}>👛<b>{fmtNum(p.wallet)}</b></span>
-            <span class="meters" aria-hidden="true">
-              <i title={t('energy')}><u class="m-energy" style={{ width: `${v.energy}%` }} /></i>
-              <i title={t('happy')}><u class="m-happy" style={{ width: `${v.happy}%` }} /></i>
-            </span>
+          <button class={`hud-chip vitals-chip ${open === 'me' ? 'on' : ''}`} onClick={() => toggle('me')} aria-label={t('vitalsTitle')}>
+            <WalletIcon size={18} />
+            <b>{fmtNum(p.wallet)}</b>
+            <span class={`hud-energy ${v.energy < 20 ? 'low' : ''}`}>⚡{Math.floor(v.energy)}</span>
           </button>
         )}
         {extra}
       </div>
-      {open && p && v && <VitalsSheet p={p} v={v} onClose={() => setOpen(false)} />}
+      {open && p && v && (
+        <>
+          <div class="hud-sheet-bg" onClick={() => setOpen(null)} />
+          {open === 'me' ? <VitalsSheet p={p} v={v} onClose={() => setOpen(null)} /> : <BudgetSheet p={p} onClose={() => setOpen(null)} />}
+        </>
+      )}
     </header>
   );
 }
 
-
 type Vitals = ReturnType<typeof vitalsNow>;
 
-/** Раскрывашка из шапки: бодрость, счастье, кошелёк и перевод в бюджет. */
+/** Раскрывашка «я»: бодрость, счастье, самоцветы, цель дня, кошелёк. */
 function VitalsSheet({ p, v, onClose }: { p: Player; v: Vitals; onClose: () => void }) {
-  const { state, send, toast } = useGame();
-  const [amount, setAmount] = useState(Math.min(100, p.wallet));
   const mult = Math.round((1 + CONFIG.happyRatingSpan * ((v.happy - 50) / 50) - 1) * 100);
   const [shop, setShop] = useState(false);
   const today = new Date(Date.now()).toISOString().slice(0, 10);
@@ -115,12 +118,17 @@ function VitalsSheet({ p, v, onClose }: { p: Player; v: Vitals; onClose: () => v
     <div class="vitals-sheet card" onClick={(e) => e.stopPropagation()}>
       <div class="row">
         <b class="grow">{p.name}</b>
-        <button class="btn ghost small" onClick={onClose}>✕</button>
+        <button class="btn ghost small icon-btn" onClick={onClose} aria-label={t('close')}>
+          ✕
+        </button>
       </div>
-      <Progress label={`⚡ ${t('energyLine', { e: Math.floor(v.energy), r: v.restPerMin.toFixed(2) })}`} value={v.energy / 100} />
+      <Progress label={`⚡ ${t('energyLine', { e: Math.floor(v.energy), r: (v.restPerMin * 60).toFixed(0) })}`} value={v.energy / 100} />
       {v.fullInMs > 0 && <div class="muted small">{t('energyFullIn', { t: fmtDuration(v.fullInMs) })}</div>}
       <Progress label={`😊 ${t('happyLine', { h: Math.floor(v.happy), cap: v.joyCap })}`} value={v.happy / 100} />
       <div class="muted small">{t('happyRating', { sign: mult >= 0 ? '+' : '−', pct: Math.abs(mult) })}</div>
+      <div class="small row gap">
+        <WalletIcon size={18} /> <span class="grow">{t('walletLine', { n: p.wallet })}</span>
+      </div>
       <div class="row gap">
         <span class="small grow">
           💎 {t('gemsLine', { n: p.gems ?? 0 })}
@@ -129,23 +137,41 @@ function VitalsSheet({ p, v, onClose }: { p: Player; v: Vitals; onClose: () => v
           {t('shopOpen')}
         </button>
       </div>
-      <div class="muted tiny">{dailyText}</div>
-      <div class="small">👛 {t('walletLine', { n: p.wallet })}</div>
-      <div class="small">🪙 {t('budgetLine', { n: state.money })}</div>
+      <div class="muted small">🎯 {dailyText}</div>
+    </div>
+  );
+}
+
+/** Раскрывашка «касса»: общий бюджет кофейни и перевод в него из своего кошелька. */
+function BudgetSheet({ p, onClose }: { p: Player; onClose: () => void }) {
+  const { state, send, toast } = useGame();
+  const [amount, setAmount] = useState(Math.min(100, p.wallet));
+  return (
+    <div class="vitals-sheet card" onClick={(e) => e.stopPropagation()}>
+      <div class="row">
+        <b class="grow">{t('budgetLine', { n: state.money })}</b>
+        <button class="btn ghost small icon-btn" onClick={onClose} aria-label={t('close')}>
+          ✕
+        </button>
+      </div>
+      <div class="muted small">{t('budgetExplain')}</div>
       {p.wallet > 0 && (
-        <div class="row gap">
-          <input class="input grow" type="number" min={1} max={p.wallet} value={amount} onInput={(e) => setAmount(Math.floor(Number((e.target as HTMLInputElement).value) || 0))} />
-          <button
-            class="btn small"
-            disabled={amount < 1 || amount > p.wallet}
-            onClick={async () => {
-              const r = await send({ type: 'transferToBudget', amount });
-              if (r) toast(t('toBudgetDone', { n: amount }));
-            }}
-          >
-            {t('toBudget')}
-          </button>
-        </div>
+        <>
+          <div class="small">{t('toBudgetHint')}</div>
+          <div class="row gap">
+            <input class="input grow" type="number" min={1} max={p.wallet} value={amount} onInput={(e) => setAmount(Math.floor(Number((e.target as HTMLInputElement).value) || 0))} />
+            <button
+              class="btn small"
+              disabled={amount < 1 || amount > p.wallet}
+              onClick={async () => {
+                const r = await send({ type: 'transferToBudget', amount });
+                if (r) toast(t('toBudgetDone', { n: amount }));
+              }}
+            >
+              {t('toBudget')}
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
@@ -532,10 +558,16 @@ export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { su
         ))}
       </div>
       <div class="big-number">+{fmtNum(summary.earned)} 🪙</div>
-      <div class="muted center">
-        {t('tips')}: {summary.tips} 🪙
+      <div class="earn-break">
+        <span>☕ {t('earnDrinks')} <b>{fmtNum(Math.max(0, summary.earned - summary.tips - summary.pastry))}</b></span>
+        <span>✨ {t('tips')} <b>{fmtNum(summary.tips)}</b></span>
+        {summary.desserts > 0 && (
+          <span>
+            🍰 {t('earnDesserts', { n: summary.desserts })} <b>{fmtNum(summary.pastry)}</b>
+          </span>
+        )}
       </div>
-      {summary.desserts > 0 && <div class="muted center">{t('dessertsLine', { n: summary.desserts, c: summary.pastry })}</div>}
+      {shiftStars(summary, total) <= 1 && <div class="card advice-card">💡 {summary.wrong > summary.left ? t('adviceWrong') : t('adviceSlow')}</div>}
       {(summary.walkNoDrink ?? 0) + (summary.walkNoMilk ?? 0) > 0 && <div class="muted small center">🚶 {t('walkoutsLine', { d: summary.walkNoDrink ?? 0, m: summary.walkNoMilk ?? 0 })}</div>}
       {summary.salary > 0 && <div class="center">👛 {t('salaryLine', { n: summary.salary })}</div>}
       {summary.happyMult && Math.abs(summary.happyMult - 1) > 0.005 && (
@@ -790,13 +822,20 @@ function MenuSeg() {
         <div class="muted small">{t('menuTodayHint')}</div>
         <div class="chips">
           {featured.map((id) => (
-            <span class="chip on">{L(DRINKS[id].name)}</span>
+            <span class="tag today-tag">☕ {L(DRINKS[id].name)}</span>
           ))}
         </div>
       </div>
-      <div class="card">
-        <div class="card-title">☕ {t('catalogTitle')}</div>
-        {order.map((id) => {
+      {(['black', 'milky', 'sweet', 'season'] as const).map((grp) => {
+        const ids = order.filter((id) => (grp === 'season' ? !!DRINKS[id].season : !DRINKS[id].season && DRINKS[id].audience === grp));
+        if (!ids.length) return null;
+        const open = ids.filter((id) => state.menu.includes(id)).length;
+        return (
+      <details class="card menu-group" open={grp !== 'season'}>
+        <summary class="card-title">
+          {t(`aud_${grp}`)} <span class="muted small">· {open}/{ids.length}</span>
+        </summary>
+        {ids.map((id) => {
           const d = DRINKS[id];
           const has = state.menu.includes(id);
           const today = state.featured.includes(id);
@@ -804,7 +843,7 @@ function MenuSeg() {
           return (
             <div class={`row item drink-row ${has ? '' : 'locked-row'}`}>
               <div class="grow">
-                <b>{L(d.name)}</b> <span class="muted small num">· {d.price} 🪙</span>
+                <b class="drink-name">{L(d.name)}</b> <span class="muted small num price">{d.price}&nbsp;🪙</span>
                 {d.season && <span class={`tag ${season ? '' : 'off'}`}>{season ? t('seasonTag', { m: monthsLabel(d.season) }) : t('outOfSeason')}</span>}
                 <div class="recipe">
                   <RecipeIcons drink={id} size={20} />
@@ -819,13 +858,14 @@ function MenuSeg() {
                   <button class="btn small" disabled={state.money < d.unlockCost} onClick={() => send({ type: 'unlockDrink', id })}>
                     {t('unlock')} · {d.unlockCost} 🪙
                   </button>
-                  {state.money < d.unlockCost && <div class="small muted">{t('lacking', { n: d.unlockCost - state.money })}</div>}
                 </div>
               )}
             </div>
           );
         })}
-      </div>
+      </details>
+        );
+      })}
     </>
   );
 }
@@ -980,7 +1020,7 @@ function effectList(items: (string | undefined)[], room: HomeRoom): string {
   }
   void items;
   const parts: string[] = [];
-  if (rest) parts.push(t('effRest', { n: +rest.toFixed(3) }));
+  if (rest) parts.push(t('effRest', { n: +(rest * 60).toFixed(1) }));
   if (joy) parts.push(t('effJoy', { n: joy }));
   if (cut) parts.push(t('effCut', { n: cut }));
   return parts.length ? `${t('roomEffects', { list: parts.join(' · ') })} (${room.kind === 'bedroom' ? t('forOwner') : t('forAll')})` : t('roomEffectsNone');
@@ -988,7 +1028,7 @@ function effectList(items: (string | undefined)[], room: HomeRoom): string {
 
 function itemEffect(d: (typeof DECOR)[number]): string {
   const parts: string[] = [];
-  if (d.rest) parts.push(t('effRest', { n: d.rest }));
+  if (d.rest) parts.push(t('effRest', { n: +(d.rest * 60).toFixed(1) }));
   if (d.joy) parts.push(t('effJoy', { n: d.joy }));
   if (d.shiftCut) parts.push(t('effCut', { n: d.shiftCut }));
   return parts.join(' · ');
@@ -1020,16 +1060,13 @@ function RoomPage({ roomKey }: { roomKey: string }) {
           <Progress label={t('roomLockedFund', { fund: room.fund, cost })} value={room.fund / cost} />
           <p class="muted small">{t('roomFundHint')}</p>
           <div class="row gap center-row">
-            {steps.map((n) => (
-              <button class="btn small" disabled={p.wallet < n} onClick={() => send({ type: 'contributeRoom', room: roomKey, amount: n })}>
-                {t('roomGive', { n })}
-              </button>
-            ))}
-            {p.wallet > 0 && p.wallet < left && !steps.includes(p.wallet) && (
-              <button class="btn small primary" onClick={() => send({ type: 'contributeRoom', room: roomKey, amount: p.wallet })}>
-                {t('roomGive', { n: p.wallet })}
-              </button>
-            )}
+            {[...steps, ...(p.wallet > 0 && p.wallet < left && !steps.includes(p.wallet) ? [p.wallet] : [])]
+              .sort((x, y) => x - y)
+              .map((n) => (
+                <button class={`btn small ${n === left || n === p.wallet ? 'primary' : ''}`} disabled={p.wallet < n} onClick={() => send({ type: 'contributeRoom', room: roomKey, amount: n })}>
+                  {n === left ? t('roomGiveAll', { n }) : t('roomGive', { n })}
+                </button>
+              ))}
           </div>
           <div class="muted small">👛 {fmtNum(p.wallet)}</div>
         </div>

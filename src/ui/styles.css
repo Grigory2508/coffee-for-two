@@ -2869,3 +2869,27 @@ h1, h2, h3, .hero-title, .card-title, .big-number { font-weight: 900; }
 .tour-text { font-weight: 700; line-height: 1.3; }
 .once-tip { display: flex; flex-direction: column; gap: 8px; background: #fff3c8; }
 .once-tip .btn { align-self: flex-end; }
+
+/* ---------- этап 4: шапка ---------- */
+.hud-left { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+.hud-left .hud-name { flex: 1 1 auto; min-width: 0 !important; }
+.hud-alert { position: absolute; left: 24px; top: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; border: 2px solid var(--outline); background: #e46a6a; color: #fff; font-weight: 900; font-size: 11px; line-height: 1; z-index: 2; animation: alertPulse 1.6s ease-in-out infinite; }
+@keyframes alertPulse { 50% { transform: scale(1.15); } }
+.hud-stats { flex: none; display: flex; gap: 5px; }
+.hud-chip { min-height: 36px; padding: 0 9px; display: inline-flex; align-items: center; gap: 4px; }
+.hud-chip.on { box-shadow: 0 0 0 3px var(--butter); }
+.vitals-chip { gap: 4px !important; }
+.hud-energy { margin-left: 3px; padding: 1px 6px; border-radius: 9px; background: #ffffff2a; font-size: 12px; }
+.hud-energy.low { background: #e46a6a; }
+.hud-sheet-bg { position: fixed; inset: 0; z-index: 29; background: #3b2a2033; }
+.vitals-sheet { z-index: 30; }
+.menu-group > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px; }
+.drink-row .price { white-space: nowrap; }
+.drink-row .drink-name { margin-right: 4px; }
+.earn-break { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 12px; font-size: 13px; color: var(--muted, #82614f); }
+.earn-break b { color: var(--coffee); }
+.advice-card { background: #fff3c8; font-weight: 700; }
+.hud-left .hud-name { min-width: 84px !important; }
+.hud-chip { padding: 0 7px; }
+.hud-chip b { font-size: 13px; }
+@media (max-width: 370px) { .hud-chip .inline { width: 15px; height: 15px; } .hud-energy { padding: 1px 4px; font-size: 11px; } .hud-stats { gap: 4px; } }

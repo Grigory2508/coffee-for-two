@@ -60,3 +60,13 @@ export function CafeArt({ levels }: { levels?: Partial<Record<CafeSlot, number>>
     </div>
   );
 }
+
+/** Личный кошелёк — розовый кошелёк с застёжкой (в отличие от монеты бюджета). */
+export const WalletIcon = ({ size = 16 }: { size?: number }) => (
+  <svg class="inline" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 8.5 Q4 6 6.5 6 H17.5 Q20 6 20 8.5 V17.5 Q20 20 17.5 20 H6.5 Q4 20 4 17.5 Z" fill="#f4a3b4" stroke="#5b3b2b" stroke-width="1.8" />
+    <path d="M8 6 Q12 2.5 16 6" fill="none" stroke="#5b3b2b" stroke-width="1.8" />
+    <rect x="13" y="11" width="7" height="5" rx="2" fill="#ffd873" stroke="#5b3b2b" stroke-width="1.6" />
+    <circle cx="16" cy="13.5" r="1" fill="#5b3b2b" />
+  </svg>
+);
