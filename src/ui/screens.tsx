@@ -568,7 +568,7 @@ export function ShiftResult({ summary, total, onClose, onAgain, canAgain }: { su
         )}
       </div>
       {shiftStars(summary, total) <= 1 && <div class="card advice-card">💡 {summary.wrong > summary.left ? t('adviceWrong') : t('adviceSlow')}</div>}
-      {(summary.walkNoDrink ?? 0) + (summary.walkNoMilk ?? 0) > 0 && <div class="muted small center">🚶 {t('walkoutsLine', { d: summary.walkNoDrink ?? 0, m: summary.walkNoMilk ?? 0 })}</div>}
+      {(summary.walkNoDrink ?? 0) + (summary.walkNoMilk ?? 0) > 0 && <div class="muted small center">🚶 {[summary.walkNoDrink ? t('walkNoDrink', { n: summary.walkNoDrink }) : '', summary.walkNoMilk ? t('walkNoMilk', { n: summary.walkNoMilk }) : ''].filter(Boolean).join(', ')}. {t('walkTell')}</div>}
       {summary.salary > 0 && <div class="center">👛 {t('salaryLine', { n: summary.salary })}</div>}
       {summary.happyMult && Math.abs(summary.happyMult - 1) > 0.005 && (
         <div class="muted small center">
